@@ -87,7 +87,8 @@ async function connectTikTok() {
   try {
     const live = new TikTokLive({
       uniqueId: tiktokUsername,
-      apiKey: tiktoolApiKey
+      apiKey: tiktoolApiKey,
+      mode: "relayed"
     });
     tiktokSocket = live;
 
