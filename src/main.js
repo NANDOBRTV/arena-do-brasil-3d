@@ -40,6 +40,26 @@ function fighter(color,x){
 }
 const green=fighter("#21b875",-2.2),blue=fighter("#428bff",2.2);blue.rotation.y=Math.PI;
 const fighters={green,blue};
+
+// Sprites transparentes dos dois lutadores enviados pelo usuário.
+// Se um arquivo ainda não estiver publicado, o modelo 3D original continua visível.
+const spriteLoader=new THREE.TextureLoader();
+function loadFighterSprite(team,path){
+ const fighter=fighters[team];
+ spriteLoader.load(path,texture=>{
+  texture.colorSpace=THREE.SRGBColorSpace;
+  const material=new THREE.MeshBasicMaterial({map:texture,transparent:true,alphaTest:0.035,side:THREE.DoubleSide,depthWrite:false});
+  const sprite=new THREE.Mesh(new THREE.PlaneGeometry(2.55,3.82),material);
+  sprite.position.set(0,1.92,team==="green"?.62:.62);
+  if(team==="blue")sprite.rotation.y=Math.PI;
+  sprite.renderOrder=3;
+  fighter.add(sprite);
+  fighter.children.forEach(child=>{if(child!==sprite)child.visible=false;});
+  fighter.userData.spriteMode=true;
+ },undefined,error=>console.warn("Sprite não carregado ("+path+"); mantendo lutador 3D.",error));
+}
+loadFighterSprite("green","/sprites/lula-boxer.png");
+loadFighterSprite("blue","/sprites/bolsonaro-boxer.png");
 function animateStrike(team,target){
  const attacker=fighters[team],defender=fighters[target];
  attacker.userData.action=.62;defender.userData.hit=.38;
