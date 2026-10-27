@@ -10,7 +10,9 @@ Protótipo inicial de jogo 3D cartoon para lives. Inclui arena Three.js, lutador
 - [x] Gateway Node.js + WebSocket para eventos sintéticos.
 - [x] Endpoint de saúde `/health` e testes unitários.
 - [x] Adaptador TikTok LIVE no servidor para comentários, presentes, curtidas, follows e shares (depende da live estar ativa e do conector conseguir acessar o TikTok).
-- [ ] Modelos 3D profissionais e teste de ponta a ponta no Render.
+- [ ] Refinar modelos 3D, animações de combate e teste de ponta a ponta no Render.
+- [x] Jogo abre direto em modo de teste; conexão LIVE foi adiada para a etapa final.
+- [x] Golpes com movimento visível dos braços e detalhes faciais adicionais nos lutadores.
 
 ## Executar
 Requer Node.js 20+.
@@ -30,7 +32,7 @@ npm run build
 `render.yaml` descreve o gateway. Conecte este repositório ao Render para publicar. Ainda não há deploy confirmado.
 
 ## TikTok LIVE
-O servidor usa `tiktok-live-connector` (integração comunitária não oficial) com o usuário definido por `TIKTOK_USERNAME` (padrão `nandobr_ofc`). Em Render, configure a variável `TIKTOK_USERNAME=nandobr_ofc` e use Node.js 20 ou superior. O status está disponível em `/api/tiktok/status` e `/health`.
+A integração está **adiada para a última etapa do projeto**. O jogo deve ser desenvolvido e testado primeiro em modo de simulação. O status técnico do servidor está disponível em `/api/tiktok/status` e `/health`.
 
 - Comentários `!verde`, `!azul`, `!ataque` e `!defesa` controlam a arena; outros comentários aparecem no feed.
 - Presentes reais são convertidos em efeitos visuais/combate conforme o valor em diamantes: até 1 = confete; 2–9 = escudo; 10+ = especial.
