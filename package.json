@@ -13,7 +13,8 @@
   "dependencies": {
     "express": "^4.21.2",
     "three": "^0.180.0",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "@tiktool/live": "^2.17.4"
   },
   "devDependencies": {
     "vite": "^6.4.1"
