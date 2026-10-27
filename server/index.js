@@ -77,11 +77,20 @@ async function connectTikTok() {
       body: JSON.stringify({ allowed_creators: [tiktokUsername], expire_after: 600, max_websockets: 1 })
     });
     let authPayload = {};
-    try { authPayload = await authResponse.json(); } catch {}
+    let authText = "";
+    try {
+      authText = await authResponse.text();
+      try { authPayload = JSON.parse(authText); } catch {}
+    } catch {}
     const jwt = authPayload?.data?.token;
     if (!authResponse.ok || !jwt) {
-      const detail = String(authPayload?.message || authPayload?.error || authPayload?.data?.message || ("HTTP " + authResponse.status));
-      updateTikTokStatus("error", "TikTool não autorizou a conexão: " + detail.slice(0, 140));
+      // Surface TikTool's response reason (never the API key) to distinguish bad key,
+      // exhausted quota, plan restrictions, and malformed requests.
+      const detail = String(authPayload?.message || authPayload?.error || authPayload?.data?.message || authPayload?.detail || authText || ("HTTP " + authResponse.status))
+        .replace(tiktoolApiKey, "[chave ocultada]")
+        .replace(/[\\r\\n\\t]+/g, " ")
+        .slice(0, 180);
+      updateTikTokStatus("error", "TikTool JWT HTTP " + authResponse.status + ": " + detail);
       scheduleTikTokReconnect();
       return;
     }
