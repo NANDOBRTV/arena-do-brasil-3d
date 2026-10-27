@@ -22,7 +22,20 @@ app.get("/health", (_req, res) => res.json({
   tiktok: { ...tiktokStatus }
 }));
 
-app.get("/api/tiktok/status", (_req, res) => res.json({ ...tiktokStatus }));\n\napp.post("/api/tiktok/connect", (req, res) => {\n  const requested = String(req.body?.username || "").trim().replace(/^@/, "");\n  if (!/^[A-Za-z0-9._]{2,24}$/.test(requested)) return res.status(400).json({ ok: false, message: "Informe um usuário TikTok válido, sem espaços." });\n  tiktokUsername = requested;\n  tiktokStatus.username = "@" + requested;\n  tiktokStatus.configured = Boolean(tiktoolApiKey);\n  if (tiktokSocket) { try { tiktokSocket.close(); } catch {} tiktokSocket = null; }\n  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }\n  updateTikTokStatus(tiktoolApiKey ? "connecting" : "needs-api-key", tiktoolApiKey ? "Solicitando conexão à LIVE de @" + requested + "…" : "Usuário definido como @" + requested + ", mas falta configurar TIKTOOL_API_KEY no Render.");\n  if (tiktoolApiKey) connectTikTok();\n  return res.json({ ok: true, username: "@" + requested, configured: Boolean(tiktoolApiKey), state: tiktokStatus.state, message: tiktokStatus.message });\n});
+app.get("/api/tiktok/status", (_req, res) => res.json({ ...tiktokStatus }));
+
+app.post("/api/tiktok/connect", (req, res) => {
+  const requested = String(req.body?.username || "").trim().replace(/^@/, "");
+  if (!/^[A-Za-z0-9._]{2,24}$/.test(requested)) return res.status(400).json({ ok: false, message: "Informe um usuário TikTok válido, sem espaços." });
+  tiktokUsername = requested;
+  tiktokStatus.username = "@" + requested;
+  tiktokStatus.configured = Boolean(tiktoolApiKey);
+  if (tiktokSocket) { try { tiktokSocket.close(); } catch {} tiktokSocket = null; }
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  updateTikTokStatus(tiktoolApiKey ? "connecting" : "needs-api-key", tiktoolApiKey ? "Solicitando conexão à LIVE de @" + requested + "…" : "Usuário definido como @" + requested + ", mas falta configurar TIKTOOL_API_KEY no Render.");
+  if (tiktoolApiKey) connectTikTok();
+  return res.json({ ok: true, username: "@" + requested, configured: Boolean(tiktoolApiKey), state: tiktokStatus.state, message: tiktokStatus.message });
+});
 
 app.get("/", (_req, res) => {
   if (hasBuiltFrontend) return res.sendFile(resolve(distDir, "index.html"));
