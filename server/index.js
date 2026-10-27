@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { WebSocketServer } from "ws";
 import WebSocket from "ws";
+import { TikTokLive } from "@tiktool/live";
 
 const app = express();
 app.disable("x-powered-by");
@@ -80,72 +81,66 @@ async function connectTikTok() {
     updateTikTokStatus("needs-api-key", "Adicione TIKTOOL_API_KEY nas variáveis privadas do Render para ativar os eventos reais.");
     return;
   }
-  if (tiktokSocket && (tiktokSocket.readyState === WebSocket.OPEN || tiktokSocket.readyState === WebSocket.CONNECTING)) return;
-  updateTikTokStatus("connecting", "Validando a chave com TikTool e solicitando credencial temporária…");
+  if (tiktokSocket) return;
+
+  updateTikTokStatus("connecting", "Conectando pelo SDK oficial @tiktool/live…");
   try {
-    // Use the documented JWT flow so authentication failures can be reported
-    // before opening the WebSocket. The API key stays on the server.
-    const authResponse = await fetch(
-      "https://api.tik.tools/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allowed_creators: [tiktokUsername], expire_after: 600, max_websockets: 1 })
-      }
-    );
-    let authBody = {};
-    try { authBody = await authResponse.json(); } catch {}
-    const token = authBody?.data?.token;
-    if (!authResponse.ok || !token) {
-      const detail = String(authBody?.message || authBody?.error || authBody?.detail || ("HTTP " + authResponse.status));
-      updateTikTokStatus("auth-error", "TikTool recusou a autenticação (" + detail.slice(0, 120) + "). Confira a validade/plano da chave no painel Tik.Tools.");
-      scheduleTikTokReconnect();
-      return;
+    const live = new TikTokLive({
+      uniqueId: tiktokUsername,
+      apiKey: tiktoolApiKey,
+      autoReconnect: true,
+      maxReconnectAttempts: 10,
+      debug: false
+    });
+    tiktokSocket = live;
+
+    const viewerName = event => String(event?.user?.uniqueId || event?.user?.nickname || event?.uniqueId || "Espectador").slice(0, 24);
+
+    live.on("connected", () => {
+      updateTikTokStatus("connected", "Conectado à LIVE de @" + tiktokUsername + "; aguardando eventos.", true);
+    });
+
+    live.on("chat", event => {
+      const comment = String(event?.comment || "").slice(0, 500);
+      const first = comment.trim().toLowerCase().split(/\\s+/)[0];
+      const command = ["!verde", "!azul", "!ataque", "!defesa"].includes(first) ? first : null;
+      broadcast({ type: "chat", viewer: viewerName(event), comment, command, eventId: String(event?.msgId || event?.messageId || "") });
+    });
+
+    live.on("gift", event => {
+      if (event?.repeatEnd === false) return;
+      const giftName = String(event?.giftName || ("Presente " + (event?.giftId ?? ""))).slice(0, 80);
+      const diamonds = Math.max(0, Number(event?.diamondCount ?? 0) || 0);
+      const gift = diamonds >= 10 ? "special" : diamonds >= 2 ? "shield" : "confetti";
+      broadcast({ type: "gift", gift, viewer: viewerName(event), giftName, diamonds, eventId: String(event?.transactionId || event?.msgId || event?.giftId || "") + ":" + String(event?.repeatCount || 1) });
+    });
+
+    live.on("like", event => {
+      const count = Math.max(1, Math.min(1000000, Math.floor(Number(event?.likeCount ?? event?.count ?? 1) || 1)));
+      broadcast({ type: "likes", count, viewer: viewerName(event) });
+    });
+
+    for (const eventName of ["member", "follow", "share", "social"]) {
+      live.on(eventName, event => {
+        const action = String(event?.event || event?.action || eventName).toLowerCase();
+        if (action.includes("follow")) broadcast({ type: "social", event: "follow", viewer: viewerName(event) });
+        else if (action.includes("share")) broadcast({ type: "social", event: "share", viewer: viewerName(event) });
+        else if (eventName === "member" || action.includes("member")) broadcast({ type: "social", event: "member", viewer: viewerName(event) });
+      });
     }
-    const url = "wss://api.tik.tools/?uniqueId=" + encodeURIComponent(tiktokUsername) +
-      "&jwtKey=" + encodeURIComponent(token);
-    const socket = new WebSocket(url);
-    tiktokSocket = socket;
-    socket.on("open", () => updateTikTokStatus("connected", "Conectado à LIVE de @" + tiktokUsername + "; aguardando eventos.", true));
-    socket.on("message", raw => {
-      let packet;
-      try { packet = JSON.parse(raw.toString()); } catch { return; }
-      const event = String(packet?.event || "").toLowerCase();
-      const data = packet?.data || {};
-      const viewer = String(data?.user?.uniqueId || data?.user_unique_id || data?.uniqueId || "Espectador").slice(0, 24);
-      if (event === "chat") {
-        const comment = String(data?.comment || "").slice(0, 500);
-        const first = comment.trim().toLowerCase().split(/\\s+/)[0];
-        const command = ["!verde", "!azul", "!ataque", "!defesa"].includes(first) ? first : null;
-        broadcast({ type: "chat", viewer, comment, command, eventId: String(data?.msgId || data?.messageId || "") });
-      } else if (event === "gift") {
-        if (data?.repeatEnd === false) return;
-        const giftName = String(data?.giftName || ("Presente " + (data?.giftId ?? ""))).slice(0, 80);
-        const diamonds = Math.max(0, Number(data?.diamondCount ?? 0) || 0);
-        const gift = diamonds >= 10 ? "special" : diamonds >= 2 ? "shield" : "confetti";
-        broadcast({ type: "gift", gift, viewer, giftName, diamonds, eventId: String(data?.transactionId || data?.msgId || data?.giftId || "") + ":" + String(data?.repeatCount || 1) });
-      } else if (event === "like") {
-        const count = Math.max(1, Math.min(1000000, Math.floor(Number(data?.likeCount ?? data?.count ?? 1) || 1)));
-        broadcast({ type: "likes", count, viewer });
-      } else if (event === "social" || event === "follow" || event === "share" || event === "member") {
-        const action = String(data?.event || data?.action || event).toLowerCase();
-        if (action.includes("follow")) broadcast({ type: "social", event: "follow", viewer });
-        else if (action.includes("share")) broadcast({ type: "social", event: "share", viewer });
-        else if (event === "member" || action.includes("member")) broadcast({ type: "social", event: "member", viewer });
-      }
+
+    live.on("error", err => {
+      const detail = String(err?.message || err || "erro de conexão").slice(0, 140);
+      updateTikTokStatus("error", "SDK TikTool: " + detail);
+      console.error("[TikTok LIVE / TikTool SDK]", detail);
     });
-    socket.on("error", err => {
-      updateTikTokStatus("error", "TikTool WebSocket: " + String(err?.message || err || "erro de conexão").slice(0, 140));
-    });
-    socket.on("close", (code, reason) => {
-      if (tiktokSocket === socket) tiktokSocket = null;
-      const details = ({ 4401: "chave/token inválido", 4403: "sem permissão para este perfil", 4404: "perfil não está ao vivo", 4429: "limite de conexões atingido" })[code];
-      updateTikTokStatus("disconnected", "TikTool encerrou a conexão (" + code + ")" + (details ? ": " + details : "") + ". Nova tentativa em 30 segundos." + (reason?.length ? " " + reason.toString().slice(0, 80) : ""));
-      scheduleTikTokReconnect();
-    });
+
+    await live.connect();
   } catch (err) {
-    updateTikTokStatus("error", "Falha ao autenticar/conectar no TikTool: " + String(err?.message || err || "erro inesperado").slice(0, 140));
-    if (tiktokSocket && tiktokSocket.readyState !== WebSocket.OPEN) tiktokSocket = null;
+    tiktokSocket = null;
+    const detail = String(err?.message || err || "erro inesperado").slice(0, 180);
+    updateTikTokStatus("auth-error", "SDK TikTool não conseguiu conectar: " + detail);
+    console.error("[TikTok LIVE / TikTool SDK]", detail);
     scheduleTikTokReconnect();
   }
 }
