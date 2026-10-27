@@ -11,7 +11,7 @@ const floor=new THREE.Mesh(new THREE.CylinderGeometry(7,7,.35,64),new THREE.Mesh
 const ring=new THREE.Mesh(new THREE.TorusGeometry(6.5,.09,12,100),new THREE.MeshStandardMaterial({color:"#e8bd63",emissive:"#674316",emissiveIntensity:.4}));ring.rotation.x=Math.PI/2;ring.position.y=.02;scene.add(ring);
 for(let i=0;i<24;i++){const a=i/24*Math.PI*2;const pillar=new THREE.Mesh(new THREE.BoxGeometry(.28,1.5,.28),new THREE.MeshStandardMaterial({color:i%2?"#2f496d":"#c6a45c",emissive:i%2?"#132a54":"#5a3610",emissiveIntensity:.4}));pillar.position.set(Math.cos(a)*7.8,.55,Math.sin(a)*7.8);scene.add(pillar);}
 function fighter(color,x){
- const g=new THREE.Group(),teamMat=new THREE.MeshStandardMaterial({color,roughness:.34,metalness:.12}),skin=new THREE.MeshStandardMaterial({color:"#c98765",roughness:.7}),dark=new THREE.MeshStandardMaterial({color:"#171e2d",roughness:.6}),gold=new THREE.MeshStandardMaterial({color:"#f2c86b",metalness:.65,roughness:.28});
+ const g=new THREE.Group(),arms=[],teamMat=new THREE.MeshStandardMaterial({color,roughness:.34,metalness:.12}),skin=new THREE.MeshStandardMaterial({color:"#c98765",roughness:.7}),dark=new THREE.MeshStandardMaterial({color:"#171e2d",roughness:.6}),gold=new THREE.MeshStandardMaterial({color:"#f2c86b",metalness:.65,roughness:.28});
  const add=(geo,mat,pos,rot)=>{const m=new THREE.Mesh(geo,mat);m.position.set(...pos);if(rot)m.rotation.set(...rot);m.castShadow=true;m.receiveShadow=true;g.add(m);return m;};
  // Silhueta de lutador com uniforme, luvas, botas e detalhes de rosto.
  add(new THREE.CapsuleGeometry(.48,.78,6,14),teamMat,[0,1.38,0]);
@@ -21,8 +21,10 @@ function fighter(color,x){
  add(new THREE.BoxGeometry(.48,.08,.12),dark,[0,2.31,.345]);
  for(const side of [-1,1]){
   add(new THREE.SphereGeometry(.055,10,8),gold,[side*.145,2.32,.355]);
-  add(new THREE.CapsuleGeometry(.145,.52,5,10),skin,[side*.61,1.48,0],[0,0,side*-.35]);
+  const arm=add(new THREE.CapsuleGeometry(.145,.52,5,10),skin,[side*.61,1.48,0],[0,0,side*-.35]);
+  arm.userData.restZ=side*-.35;arms.push({mesh:arm,side});
   add(new THREE.SphereGeometry(.19,14,12),teamMat,[side*.78,1.16,.04]);
+  add(new THREE.SphereGeometry(.12,12,10),gold,[side*.78,1.15,.17]);
   add(new THREE.CapsuleGeometry(.18,.52,5,10),dark,[side*.23,.55,0],[0,0,side*.07]);
   add(new THREE.BoxGeometry(.31,.16,.48),teamMat,[side*.23,.22,.09]);
   add(new THREE.BoxGeometry(.34,.13,.5),dark,[side*.23,.12,.1]);
@@ -31,13 +33,16 @@ function fighter(color,x){
  add(new THREE.BoxGeometry(.18,.18,.06),dark,[0,1.03,.28]);
  // Ombre de contato e emblema frontal.
  add(new THREE.BoxGeometry(.24,.25,.045),gold,[0,1.55,.48]);
- g.position.x=x;g.userData.baseX=x;g.userData.action=0;g.userData.hit=0;scene.add(g);return g;
+ // Olhos, sobrancelhas e sorriso dão leitura facial melhor no enquadramento da live.
+ for(const side of [-1,1]){add(new THREE.SphereGeometry(.035,10,8),dark,[side*.13,2.29,.365]);add(new THREE.BoxGeometry(.11,.025,.035),dark,[side*.13,2.35,.365]);}
+ add(new THREE.BoxGeometry(.14,.025,.025),dark,[0,2.19,.37]);
+ g.position.x=x;g.userData.baseX=x;g.userData.action=0;g.userData.hit=0;g.userData.arms=arms;scene.add(g);return g;
 }
 const green=fighter("#21b875",-2.2),blue=fighter("#428bff",2.2);blue.rotation.y=Math.PI;
 const fighters={green,blue};
 function animateStrike(team,target){
  const attacker=fighters[team],defender=fighters[target];
- attacker.userData.action=.42;defender.userData.hit=.32;
+ attacker.userData.action=.62;defender.userData.hit=.38;
  burst(team==="green"?"#4effb0":"#73b5ff",18);sound(team==="green"?170:145);
 }
 function addArenaLights(){
@@ -93,4 +98,4 @@ connectForm?.addEventListener("submit",async e=>{
 enterGameBtn?.addEventListener("click",()=>{connectScreen.hidden=true;});
 
 function resize(){const r=$("arena").getBoundingClientRect();camera.aspect=r.width/Math.max(1,r.height);camera.updateProjectionMatrix();renderer.setSize(r.width,r.height,false);}window.addEventListener("resize",resize);resize();renderState();
-let t=0;function animate(){requestAnimationFrame(animate);t+=.016;for(const [name,f] of Object.entries(fighters)){const action=f.userData.action||0,hit=f.userData.hit||0;f.position.x=f.userData.baseX+(action>0?(name==="green"?1:-1)*Math.sin((.42-action)/.42*Math.PI)*.85:0);f.position.y=Math.abs(Math.sin(t*2.4+(name==="green"?0:1)))*.035+(hit>0?Math.sin((.32-hit)/.32*Math.PI)*.12:0);f.rotation.z=(hit>0?(name==="green"?1:-1)*Math.sin((.32-hit)/.32*Math.PI)*.22:0)+(state.running?Math.sin(t*2.6+(name==="green"?0:1))*.018:0);f.userData.action=Math.max(0,action-.016);f.userData.hit=Math.max(0,hit-.016);}for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.m.position.add(p.v);p.v.y-=.003;p.life--;if(p.life<=0){scene.remove(p.m);p.m.geometry.dispose();p.m.material.dispose();particles.splice(i,1);}}renderer.render(scene,camera);}animate();
+let t=0;function animate(){requestAnimationFrame(animate);t+=.016;for(const [name,f] of Object.entries(fighters)){const action=f.userData.action||0,hit=f.userData.hit||0;const strike=Math.sin(Math.min(1,(.62-action)/.62)*Math.PI);f.position.x=f.userData.baseX+(action>0?(name==="green"?1:-1)*strike*.95:0);f.position.y=Math.abs(Math.sin(t*2.4+(name==="green"?0:1)))*.045+(hit>0?Math.sin((.38-hit)/.38*Math.PI)*.16:0);f.rotation.z=(hit>0?(name==="green"?1:-1)*Math.sin((.38-hit)/.38*Math.PI)*.26:0)+(state.running?Math.sin(t*2.6+(name==="green"?0:1))*.025:0);for(const arm of f.userData.arms||[]){arm.mesh.rotation.z=arm.mesh.userData.restZ+(action>0?arm.side*strike*.95:state.running?Math.sin(t*4+(arm.side>0?0:Math.PI))*.07:0);}f.userData.action=Math.max(0,action-.016);f.userData.hit=Math.max(0,hit-.016);}for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.m.position.add(p.v);p.v.y-=.003;p.life--;if(p.life<=0){scene.remove(p.m);p.m.geometry.dispose();p.m.material.dispose();particles.splice(i,1);}}renderer.render(scene,camera);}animate();
