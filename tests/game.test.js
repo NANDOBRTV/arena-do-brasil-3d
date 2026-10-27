@@ -1,7 +1,8 @@
 import test from "node:test";import assert from "node:assert/strict";import {createInitialState,applyDamage,normalizeCommand,recordVote,getWinner} from "../src/game.js";
-test("initial state starts with full health and no active round",()=>{const s=createInitialState();assert.equal(s.green.health,100);assert.equal(s.blue.health,100);assert.equal(s.running,false);});
+test("initial state starts with full health and no active round",()=>{const s=createInitialState();assert.equal(s.green.health,100);assert.equal(s.blue.health,100);assert.equal(s.running,false);assert.equal(s.remaining,180);});
 test("damage reduces health without going below zero",()=>{const s=createInitialState();applyDamage(s,"green",45);applyDamage(s,"green",1000);assert.equal(s.green.health,0);assert.equal(s.ended,true);});
 test("invalid and negative damage are ignored",()=>{const s=createInitialState();applyDamage(s,"green",-4);applyDamage(s,"green",NaN);assert.equal(s.green.health,100);});
 test("commands normalize and reject unknown commands",()=>{assert.equal(normalizeCommand("  !VERDE  "),"!verde");assert.equal(normalizeCommand("!spam"),null);});
 test("votes update team totals and viewer ranking",()=>{const s=createInitialState();assert.equal(recordVote(s,"!verde","Nando").ok,true);recordVote(s,"!azul","Nando");assert.equal(s.votes.green,1);assert.equal(s.votes.blue,1);assert.equal(s.ranking.Nando,2);});
 test("winner is determined by remaining health",()=>{const s=createInitialState();s.green.health=80;s.blue.health=30;assert.equal(getWinner(s),"green");s.blue.health=80;assert.equal(getWinner(s),"draw");});
+test("round duration is three minutes",()=>{assert.equal(createInitialState().remaining,180);});
