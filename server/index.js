@@ -31,7 +31,7 @@ app.post("/api/tiktok/connect", (req, res) => {
   tiktokUsername = requested;
   tiktokStatus.username = "@" + requested;
   tiktokStatus.configured = Boolean(tiktoolApiKey);
-  if (tiktokSocket) { try { tiktokSocket.close(); } catch {} tiktokSocket = null; }
+  if (tiktokSocket) { try { tiktokSocket.disconnect(); } catch {} tiktokSocket = null; }
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   updateTikTokStatus(tiktoolApiKey ? "connecting" : "needs-api-key", tiktoolApiKey ? "Solicitando conexão à LIVE de @" + requested + "…" : "Usuário definido como @" + requested + ", mas falta configurar TIKTOOL_API_KEY no Render.");
   if (tiktoolApiKey) connectTikTok();
@@ -128,6 +128,12 @@ async function connectTikTok() {
         else if (eventName === "member" || action.includes("member")) broadcast({ type: "social", event: "member", viewer: viewerName(event) });
       });
     }
+
+    live.on("disconnected", () => {
+      if (tiktokSocket === live) tiktokSocket = null;
+      if (tiktokStatus.connected) updateTikTokStatus("disconnected", "A conexão com a LIVE foi encerrada; tentando reconectar.");
+      scheduleTikTokReconnect();
+    });
 
     live.on("error", err => {
       const detail = String(err?.message || err || "erro de conexão").slice(0, 140);
