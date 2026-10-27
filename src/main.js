@@ -58,7 +58,7 @@ function loadFighterSprite(team,path){
   fighter.userData.spriteMode=true;
  },undefined,error=>console.warn("Sprite não carregado ("+path+"); mantendo lutador 3D.",error));
 }
-loadFighterSprite("green","/sprites/lula-boxer.png");
+loadFighterSprite("green","/sprites/1a9f7470-d1a6-11f1-baaf-a3df7ab54a18.png");
 loadFighterSprite("blue","/sprites/bolsonaro-boxer.png");
 function animateStrike(team,target){
  const attacker=fighters[team],defender=fighters[target];
