@@ -29,13 +29,13 @@ app.post("/api/tiktok/connect", (req, res) => {
   const requested = String(req.body?.username || "").trim().replace(/^@/, "");
   if (!/^[A-Za-z0-9._]{2,24}$/.test(requested)) return res.status(400).json({ ok: false, message: "Informe um usuário TikTok válido, sem espaços." });
   tiktokUsername = requested;
-  tiktokStatus.username = "@" + requested;
+  tiktokStatus.username = requested;
   tiktokStatus.configured = Boolean(tiktoolApiKey);
   if (tiktokSocket) { try { tiktokSocket.disconnect(); } catch {} tiktokSocket = null; }
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   updateTikTokStatus(tiktoolApiKey ? "connecting" : "needs-api-key", tiktoolApiKey ? "Solicitando conexão à LIVE de @" + requested + "…" : "Usuário definido como @" + requested + ", mas falta configurar TIKTOOL_API_KEY no Render.");
   if (tiktoolApiKey) connectTikTok();
-  return res.json({ ok: true, username: "@" + requested, configured: Boolean(tiktoolApiKey), state: tiktokStatus.state, message: tiktokStatus.message });
+  return res.json({ ok: true, username: requested, configured: Boolean(tiktoolApiKey), state: tiktokStatus.state, message: tiktokStatus.message });
 });
 
 app.get("/", (_req, res) => {
@@ -55,7 +55,7 @@ const tiktoolApiKey = String(process.env.TIKTOOL_API_KEY || "").trim();
 const tiktokStatus = {
   configured: Boolean(tiktokUsername && tiktoolApiKey),
   provider: "tiktool",
-  username: tiktokUsername ? "@" + tiktokUsername : null,
+  username: tiktokUsername ? tiktokUsername : null,
   connected: false,
   state: !tiktoolApiKey ? "needs-api-key" : "connecting",
   message: !tiktoolApiKey ? "TikTool selecionado. Adicione TIKTOOL_API_KEY nas variáveis privadas do Render." : "Conectando ao TikTok LIVE…"
@@ -148,7 +148,7 @@ async function connectTikTok() {
     const detail = String(err?.message || err || "erro inesperado").slice(0, 180);
     const waitingForLive = /not currently live|isn't live|not live|no active live|live room.*not found/i.test(detail);
     if (waitingForLive) {
-      updateTikTokStatus("waiting-for-live", "A conta @" + tiktokUsername + " não está ao vivo no TikTok neste momento. Deixe esta conexão ativa; o servidor tentará novamente automaticamente.", false);
+      updateTikTokStatus("waiting-for-live", "A conta " + tiktokUsername + " não está ao vivo no TikTok neste momento. Deixe esta conexão ativa; o servidor tentará novamente automaticamente.", false);
       console.info("[TikTok LIVE / TikTool SDK] LIVE offline; retry scheduled.");
     } else {
       updateTikTokStatus("auth-error", "SDK TikTool não conseguiu conectar: " + detail);
