@@ -36,7 +36,7 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/events" });
 const clients = new Set();
 const recentIds = new Map();
-const tiktokUsername = String(process.env.TIKTOK_USERNAME || "").trim().replace(/^@/, "");
+const tiktokUsername = String(process.env.TIKTOK_USERNAME || "nandobr_ofc").trim().replace(/^@/, "");
 const tiktokStatus = { configured: Boolean(tiktokUsername), username: tiktokUsername ? "@" + tiktokUsername : null, connected: false, state: tiktokUsername ? "connecting" : "not-configured", message: tiktokUsername ? "Conectando ao TikTok LIVE…" : "Defina TIKTOK_USERNAME no ambiente do servidor." };
 let tiktokConnection = null;
 let reconnectTimer = null;
@@ -95,11 +95,7 @@ const allowedTypes = new Set(["chat", "gift", "likes"]);
 
 wss.on("connection", socket => {
   clients.add(socket);
-  socket.send(JSON.stringify({
-    type: "status",
-    mode: "simulator",
-    message: "Gateway de teste conectado; TikTok real não conectado."
-  }));
+  socket.send(JSON.stringify({ type: "status", mode: tiktokStatus.connected ? "tiktok-live" : "simulator", tiktok: { ...tiktokStatus }, message: tiktokStatus.message }));
   socket.on("message", raw => {
     let event;
     try { event = JSON.parse(raw.toString()); } catch { return; }
