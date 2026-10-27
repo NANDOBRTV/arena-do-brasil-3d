@@ -1,4 +1,4 @@
-export const MAX_HEALTH=100; export const ROUND_SECONDS=180;
+export const MAX_HEALTH=600; export const ROUND_SECONDS=600;
 export function createInitialState(){return {running:false,ended:false,remaining:ROUND_SECONDS,round:1,green:{health:MAX_HEALTH,score:0,shieldUntil:0},blue:{health:MAX_HEALTH,score:0,shieldUntil:0},votes:{green:0,blue:0},ranking:{},likes:0,events:[],history:[]};}
 export function applyDamage(state,target,amount,now=Date.now()){if(!["green","blue"].includes(target)||!Number.isFinite(amount)||amount<0)return state;const fighter=state[target];const damage=fighter.shieldUntil>now?Math.ceil(amount*.35):amount;fighter.health=Math.max(0,fighter.health-damage);if(target==="green")state.blue.score+=damage;else state.green.score+=damage;if(fighter.health===0){state.running=false;state.ended=true;}return state;}
 export function normalizeCommand(raw){const command=String(raw??"").trim().toLowerCase().split(/\s+/)[0];return ["!verde","!azul","!ataque","!defesa"].includes(command)?command:null;}
