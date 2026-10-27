@@ -70,9 +70,36 @@ async function connectTikTok() {
   if (tiktokSocket && (tiktokSocket.readyState === WebSocket.OPEN || tiktokSocket.readyState === WebSocket.CONNECTING)) return;
   updateTikTokStatus("connecting", "Validando a chave e preparando conexão segura com TikTool…");
   try {
-    // TikTool Quick Start: keep the API key on this server and connect with apiKey.
-    // Do not put this URL in browser code; it contains the private API key.
-    const url = "wss://api.tik.tools/?uniqueId=" + encodeURIComponent(tiktokUsername) + "&apiKey=" + encodeURIComponent(tiktoolApiKey);
+    // Official Tik.Tools JWT flow. The API key stays only in Render's environment.
+    // If no username is configured, discover the first public live channel.
+    let creator = tiktokUsername;
+    if (!creator) {
+      const channelsResponse = await fetch("https://api.tik.tools/api/live/top-channels");
+      const channelsPayload = await channelsResponse.json();
+      creator = String(channelsPayload?.channels?.[0]?.uniqueId || "").trim().replace(/^@/, "");
+      if (!channelsResponse.ok || !creator) {
+        updateTikTokStatus("error", "TikTool não retornou canais ao vivo para selecionar.");
+        scheduleTikTokReconnect();
+        return;
+      }
+    }
+    const authResponse = await fetch("https://api.tik.tools/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowed_creators: [creator], expire_after: 600, max_websockets: 1 })
+    });
+    const authText = await authResponse.text();
+    let authPayload = {};
+    try { authPayload = JSON.parse(authText); } catch {}
+    const jwt = authPayload?.data?.token;
+    if (!authResponse.ok || !jwt) {
+      const detail = String(authPayload?.message || authPayload?.error || authPayload?.data?.message || authPayload?.detail || authText || ("HTTP " + authResponse.status))
+        .replace(tiktoolApiKey, "[chave ocultada]").replace(/[\\r\\n\\t]+/g, " ").slice(0, 180);
+      updateTikTokStatus("error", "TikTool JWT HTTP " + authResponse.status + ": " + detail);
+      scheduleTikTokReconnect();
+      return;
+    }
+    const url = "wss://api.tik.tools/?uniqueId=" + encodeURIComponent(creator) + "&jwtKey=" + encodeURIComponent(jwt);
     const socket = new WebSocket(url);
     tiktokSocket = socket;
     socket.on("open", () => updateTikTokStatus("connected", "Conectado ao fluxo TikTok LIVE pelo TikTool para @" + tiktokUsername, true));
