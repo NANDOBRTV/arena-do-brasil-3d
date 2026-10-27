@@ -1,0 +1,6 @@
+{
+  "name":"arena-do-brasil-3d","version":"0.1.0","private":true,"type":"module",
+  "scripts":{"dev":"vite --host 0.0.0.0","build":"vite build","preview":"vite preview --host 0.0.0.0","server":"node server/index.js","test":"node --test"},
+  "dependencies":{"express":"^4.21.2","three":"^0.180.0","ws":"^8.18.3"},
+  "devDependencies":{"vite":"^6.4.1"}
+}
