@@ -87,10 +87,7 @@ async function connectTikTok() {
   try {
     const live = new TikTokLive({
       uniqueId: tiktokUsername,
-      apiKey: tiktoolApiKey,
-      autoReconnect: true,
-      maxReconnectAttempts: 10,
-      debug: false
+      apiKey: tiktoolApiKey
     });
     tiktokSocket = live;
 
@@ -98,6 +95,10 @@ async function connectTikTok() {
 
     live.on("connected", () => {
       updateTikTokStatus("connected", "Conectado à LIVE de @" + tiktokUsername + "; aguardando eventos.", true);
+    });
+
+    live.on("viewer_count", event => {
+      broadcast({ type: "viewer_count", viewerCount: Math.max(0, Number(event?.viewerCount ?? 0) || 0) });
     });
 
     live.on("chat", event => {
