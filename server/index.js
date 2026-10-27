@@ -22,7 +22,7 @@ app.get("/health", (_req, res) => res.json({
   tiktok: { ...tiktokStatus }
 }));
 
-app.get("/api/tiktok/status", (_req, res) => res.json({ ...tiktokStatus }));
+app.get("/api/tiktok/status", (_req, res) => res.json({ ...tiktokStatus }));\n\napp.post("/api/tiktok/connect", (req, res) => {\n  const requested = String(req.body?.username || "").trim().replace(/^@/, "");\n  if (!/^[A-Za-z0-9._]{2,24}$/.test(requested)) return res.status(400).json({ ok: false, message: "Informe um usuário TikTok válido, sem espaços." });\n  tiktokUsername = requested;\n  tiktokStatus.username = "@" + requested;\n  tiktokStatus.configured = Boolean(tiktoolApiKey);\n  if (tiktokSocket) { try { tiktokSocket.close(); } catch {} tiktokSocket = null; }\n  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }\n  updateTikTokStatus(tiktoolApiKey ? "connecting" : "needs-api-key", tiktoolApiKey ? "Solicitando conexão à LIVE de @" + requested + "…" : "Usuário definido como @" + requested + ", mas falta configurar TIKTOOL_API_KEY no Render.");\n  if (tiktoolApiKey) connectTikTok();\n  return res.json({ ok: true, username: "@" + requested, configured: Boolean(tiktoolApiKey), state: tiktokStatus.state, message: tiktokStatus.message });\n});
 
 app.get("/", (_req, res) => {
   if (hasBuiltFrontend) return res.sendFile(resolve(distDir, "index.html"));
@@ -36,7 +36,7 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/events" });
 const clients = new Set();
 const recentIds = new Map();
-const tiktokUsername = String(process.env.TIKTOK_USERNAME || "nandobr_ofc").trim().replace(/^@/, "");
+let tiktokUsername = String(process.env.TIKTOK_USERNAME || "nandobr_ofc").trim().replace(/^@/, "");
 const tiktoolApiKey = String(process.env.TIKTOOL_API_KEY || "").trim();
 const tiktokStatus = {
   configured: Boolean(tiktokUsername && tiktoolApiKey),
