@@ -97,7 +97,7 @@ async function connectTikTok() {
     // Render can occasionally be blocked by the public edge. Paid TikTool plans
     // document direct.tik.tools as the server-to-server alternative; try it only
     // when the public endpoint returns an HTML 403, not for normal API errors.
-    if (authResponse.status === 403 && /^\\s*<!doctype html|^\\s*<html/i.test(authText)) {
+    if (authResponse.status === 403 && /^\s*<!doctype html|^\s*<html/i.test(authText)) {
       authHost = "https://direct.tik.tools";
       authResponse = await fetch(authHost + "/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
         method: "POST",
