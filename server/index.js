@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { WebSocketServer } from "ws";
+import { TikTokLiveConnection, WebcastEvent, ControlEvent } from "tiktok-live-connector";
 
 const app = express();
 app.disable("x-powered-by");
@@ -17,8 +18,11 @@ app.get("/health", (_req, res) => res.json({
   service: "arena-do-brasil-3d",
   mode: "simulator-ready",
   frontendBuilt: hasBuiltFrontend,
-  platformAdapter: "not-configured"
+  platformAdapter: tiktokStatus.configured ? "tiktok-live-connector" : "not-configured",
+  tiktok: { ...tiktokStatus }
 }));
+
+app.get("/api/tiktok/status", (_req, res) => res.json({ ...tiktokStatus }));
 
 app.get("/", (_req, res) => {
   if (hasBuiltFrontend) return res.sendFile(resolve(distDir, "index.html"));
@@ -32,6 +36,61 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/events" });
 const clients = new Set();
 const recentIds = new Map();
+const tiktokUsername = String(process.env.TIKTOK_USERNAME || "").trim().replace(/^@/, "");
+const tiktokStatus = { configured: Boolean(tiktokUsername), username: tiktokUsername ? "@" + tiktokUsername : null, connected: false, state: tiktokUsername ? "connecting" : "not-configured", message: tiktokUsername ? "Conectando ao TikTok LIVE…" : "Defina TIKTOK_USERNAME no ambiente do servidor." };
+let tiktokConnection = null;
+let reconnectTimer = null;
+function broadcast(payload) {
+  const message = JSON.stringify(payload);
+  for (const client of clients) if (client.readyState === 1) client.send(message);
+}
+function updateTikTokStatus(state, message, connected = false) {
+  Object.assign(tiktokStatus, { state, message, connected, updatedAt: new Date().toISOString() });
+  broadcast({ type: "status", mode: connected ? "tiktok-live" : "simulator", tiktok: { ...tiktokStatus } });
+  console.log("[TikTok LIVE]", state, message);
+}
+function scheduleTikTokReconnect() {
+  if (!tiktokUsername || reconnectTimer) return;
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; connectTikTok(); }, 30000);
+  reconnectTimer.unref?.();
+}
+function connectTikTok() {
+  if (!tiktokUsername) return;
+  if (tiktokConnection?.isConnected || tiktokConnection?.isConnecting) return;
+  updateTikTokStatus("connecting", "Tentando conectar ao @" + tiktokUsername + "…");
+  const connection = new TikTokLiveConnection(tiktokUsername, { enableExtendedGiftInfo: true });
+  tiktokConnection = connection;
+  connection.on(ControlEvent.CONNECTED, () => updateTikTokStatus("connected", "Conectado à live de @" + tiktokUsername, true));
+  connection.on(ControlEvent.DISCONNECTED, () => { updateTikTokStatus("disconnected", "Conexão TikTok encerrada; nova tentativa em 30 segundos."); scheduleTikTokReconnect(); });
+  connection.on(ControlEvent.STREAM_END, () => { updateTikTokStatus("offline", "A live terminou ou está offline; nova tentativa em 30 segundos."); scheduleTikTokReconnect(); });
+  connection.on(ControlEvent.ERROR, err => { updateTikTokStatus("error", "Falha na conexão TikTok: " + String(err?.message || err).slice(0, 180)); });
+  connection.on(WebcastEvent.CHAT, data => {
+    const viewer = String(data?.user?.uniqueId || data?.uniqueId || "Espectador").slice(0, 24);
+    const comment = String(data?.comment || "").slice(0, 500);
+    const first = comment.trim().toLowerCase().split(/\\s+/)[0];
+    const command = ["!verde", "!azul", "!ataque", "!defesa"].includes(first) ? first : null;
+    broadcast({ type: "chat", viewer, comment, command, eventId: String(data?.msgId || data?.messageId || "") });
+  });
+  connection.on(WebcastEvent.GIFT, data => {
+    if (data?.repeatEnd === false) return;
+    const viewer = String(data?.user?.uniqueId || data?.uniqueId || "Espectador").slice(0, 24);
+    const giftName = String(data?.giftName || data?.extendedGiftInfo?.name || ("Presente " + (data?.giftId ?? ""))).slice(0, 80);
+    const diamonds = Math.max(0, Number(data?.diamondCount ?? data?.extendedGiftInfo?.diamond_count ?? 0) || 0);
+    const gift = diamonds >= 10 ? "special" : diamonds >= 2 ? "shield" : "confetti";
+    broadcast({ type: "gift", gift, viewer, giftName, diamonds, eventId: String(data?.msgId || data?.giftId || "") + ":" + String(data?.repeatCount || 1) });
+  });
+  connection.on(WebcastEvent.LIKE, data => {
+    const count = Math.max(1, Math.min(1000000, Math.floor(Number(data?.likeCount ?? data?.count ?? 1) || 1)));
+    broadcast({ type: "likes", count, viewer: String(data?.user?.uniqueId || data?.uniqueId || "Espectador").slice(0, 24) });
+  });
+  connection.on(WebcastEvent.FOLLOW, data => broadcast({ type: "social", event: "follow", viewer: String(data?.user?.uniqueId || data?.uniqueId || "Alguém").slice(0, 24) }));
+  connection.on(WebcastEvent.SHARE, data => broadcast({ type: "social", event: "share", viewer: String(data?.user?.uniqueId || data?.uniqueId || "Alguém").slice(0, 24) }));
+  connection.connect().catch(err => {
+    updateTikTokStatus("error", "Não foi possível conectar: " + String(err?.message || err).slice(0, 180));
+    scheduleTikTokReconnect();
+  });
+}
+
 const allowedTypes = new Set(["chat", "gift", "likes"]);
 
 wss.on("connection", socket => {
@@ -73,4 +132,4 @@ wss.on("connection", socket => {
 });
 
 const port = Number(process.env.PORT || 3001);
-server.listen(port, "0.0.0.0", () => console.log("Arena gateway listening on " + port));
+server.listen(port, "0.0.0.0", () => { console.log("Arena gateway listening on " + port); connectTikTok(); });
