@@ -2,8 +2,7 @@ import express from "express";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { WebSocketServer } from "ws";
-import { TikTokLiveClient, EventType } from "piratetok-live-js";
+import { WebSocket, WebSocketServer } from "ws";
 
 const app = express();
 app.disable("x-powered-by");
@@ -29,10 +28,11 @@ app.post("/api/tiktok/connect", (req, res) => {
   tiktokUsername = requested;
   tiktokStatus.username = requested;
   tiktokStatus.configured = true;
+  connectionGeneration++;
   if (tiktokSocket) {
     const old = tiktokSocket;
     tiktokSocket = null;
-    try { old.disconnect(); } catch {}
+    try { old.close(); } catch {}
   }
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   updateTikTokStatus("connecting", "Solicitando conexão à LIVE de " + requested + " pelo PirateTok Live JS…");
@@ -50,15 +50,17 @@ const wss = new WebSocketServer({ server, path: "/events" });
 const clients = new Set();
 const recentIds = new Map();
 let tiktokUsername = String(process.env.TIKTOK_USERNAME || "nandobr_ofc").trim().replace(/^@/, "");
+const eulerApiKey = String(process.env.EULERSTREAM_API_KEY || "").trim();
 const tiktokStatus = {
   configured: Boolean(tiktokUsername),
-  provider: "piratetok-live-js",
+  provider: "eulerstream-websocket",
   username: tiktokUsername || null,
   connected: false,
   state: "connecting",
-  message: "Conectando ao PirateTok Live JS…"
+  message: eulerApiKey ? "Preparando conexão EulerStream…" : "Falta configurar EULERSTREAM_API_KEY no Render."
 };
 let tiktokSocket = null;
+let connectionGeneration = 0;
 let reconnectTimer = null;
 
 function broadcast(payload) {
@@ -81,68 +83,104 @@ function getViewerName(data) {
 function getDiamonds(data) {
   return Math.max(0, Number(data?.gift?.diamondCount ?? data?.diamondCount ?? 0) || 0);
 }
-async function connectTikTok() {
+function pick(obj, keys) {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return undefined;
+}
+function normalizeEulerMessage(raw) {
+  const root = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  const type = String(pick(root, ["type", "event", "eventType", "method", "messageType", "msgType"]) || pick(raw, ["type", "event", "eventType", "method", "messageType", "msgType"]) || "").toLowerCase();
+  const user = root?.user || root?.sender || root?.from || root?.common?.user || {};
+  const viewer = String(pick(user, ["uniqueId", "unique_id", "nickname", "displayId", "display_id"]) || pick(root, ["uniqueId", "nickname", "username"]) || "Espectador").slice(0, 24);
+  const content = pick(root, ["content", "comment", "text", "message"]);
+  const giftObj = root?.gift || root?.giftDetails || root?.gift_details || {};
+  const giftName = String(pick(giftObj, ["name", "giftName", "gift_name"]) || pick(root, ["giftName", "gift_name"]) || "Presente").slice(0, 80);
+  const diamonds = Math.max(0, Number(pick(giftObj, ["diamondCount", "diamond_count", "value"]) ?? pick(root, ["diamondCount", "diamond_count", "giftValue"]) ?? 0) || 0);
+  const id = String(pick(root, ["msgId", "messageId", "message_id", "eventId", "event_id"]) || "");
+  if (/chat|comment|immessage/.test(type) || typeof content === "string" && /chat|comment/.test(JSON.stringify(raw).slice(0, 250).toLowerCase())) {
+    const comment = String(content ?? "").slice(0, 500);
+    const command = comment.trim().toLowerCase().split(/\s+/)[0];
+    return { type: "chat", viewer, comment, command: ["!verde", "!azul", "!ataque", "!defesa"].includes(command) ? command : null, eventId: id };
+  }
+  if (/gift|diamondsent/.test(type) || root?.gift) {
+    if (root?.isStreakOver === false || root?.repeatEnd === false) return null;
+    return { type: "gift", gift: diamonds >= 10 ? "special" : diamonds >= 2 ? "shield" : "confetti", viewer, giftName, diamonds, eventId: id || giftName + ":" + String(root?.repeatCount || 1) };
+  }
+  if (/like|digg/.test(type)) {
+    return { type: "likes", count: Math.max(1, Math.min(1000000, Math.floor(Number(pick(root, ["count", "total", "likeCount", "like_count"]) || 1)))), viewer };
+  }
+  if (/follow/.test(type)) return { type: "social", event: "follow", viewer };
+  if (/share/.test(type)) return { type: "social", event: "share", viewer };
+  if (/member|join|enter/.test(type)) return { type: "social", event: "member", viewer };
+  const count = Number(pick(root, ["viewerCount", "viewer_count", "userCount"]));
+  if (/roomuser|viewer|roomstats/.test(type) && Number.isFinite(count)) return { type: "viewer_count", viewerCount: Math.max(0, Math.floor(count)) };
+  return null;
+}
+function handleEulerFrame(frame) {
+  let parsed;
+  try { parsed = JSON.parse(Buffer.isBuffer(frame) ? frame.toString("utf8") : String(frame)); }
+  catch { return; }
+  const messages = Array.isArray(parsed?.messages) ? parsed.messages : Array.isArray(parsed) ? parsed : [parsed];
+  for (const raw of messages) {
+    const event = normalizeEulerMessage(raw);
+    if (!event) continue;
+    if (event.type === "chat") {
+      broadcast({ type: "chat", viewer: event.viewer, comment: event.comment, command: event.command, eventId: event.eventId });
+    } else if (event.type === "gift") {
+      broadcast({ type: "gift", gift: event.gift, viewer: event.viewer, giftName: event.giftName, diamonds: event.diamonds, eventId: event.eventId });
+    } else if (event.type === "likes") {
+      broadcast(event);
+    } else {
+      broadcast(event);
+    }
+  }
+}
+function connectTikTok() {
   if (!tiktokUsername) {
     updateTikTokStatus("needs-username", "Informe o usuário da LIVE para conectar.");
     return;
   }
-  if (tiktokSocket) return;
-  updateTikTokStatus("connecting", "Conectando à LIVE de " + tiktokUsername + " pelo PirateTok Live JS…");
-  let live;
-  try {
-    live = new TikTokLiveClient(tiktokUsername).timeout(15000).maxRetries(10).region("BR");
-    tiktokSocket = live;
-    live.on(EventType.chat, data => {
-      const comment = String(data?.content || "").slice(0, 500);
-      const command = comment.trim().toLowerCase().split(/\s+/)[0];
-      const accepted = ["!verde", "!azul", "!ataque", "!defesa"].includes(command) ? command : null;
-      broadcast({ type: "chat", viewer: getViewerName(data), comment, command: accepted, eventId: String(data?.msgId || data?.messageId || "") });
-    });
-    live.on(EventType.gift, data => {
-      if (data?.isStreakOver === false || data?.isCombo === true && data?.repeatEnd === false) return;
-      const diamonds = getDiamonds(data);
-      const giftName = String(data?.gift?.name || data?.gift?.giftName || "Presente").slice(0, 80);
-      const gift = diamonds >= 10 ? "special" : diamonds >= 2 ? "shield" : "confetti";
-      broadcast({ type: "gift", gift, viewer: getViewerName(data), giftName, diamonds, eventId: String(data?.msgId || data?.gift?.id || giftName) + ":" + String(data?.repeatCount || 1) });
-    });
-    live.on(EventType.like, data => {
-      const count = Math.max(1, Math.min(1000000, Math.floor(Number(data?.count ?? data?.total ?? 1) || 1)));
-      broadcast({ type: "likes", count, viewer: getViewerName(data) });
-    });
-    live.on(EventType.follow, data => broadcast({ type: "social", event: "follow", viewer: getViewerName(data) }));
-    live.on(EventType.share, data => broadcast({ type: "social", event: "share", viewer: getViewerName(data) }));
-    live.on(EventType.join, data => broadcast({ type: "social", event: "member", viewer: getViewerName(data) }));
-    live.on(EventType.liveEnded, () => {
-      if (tiktokSocket === live) tiktokSocket = null;
-      updateTikTokStatus("waiting-for-live", "A LIVE de " + tiktokUsername + " terminou; aguardando nova transmissão.");
-      scheduleTikTokReconnect();
-    });
-    live.on("reconnecting", info => {
-      console.warn("[PirateTok LIVE] reconectando", info || "");
-      if (tiktokStatus.connected) updateTikTokStatus("reconnecting", "Conexão instável; PirateTok está tentando reconectar.");
-    });
-    live.on("disconnected", () => {
-      if (tiktokSocket === live) tiktokSocket = null;
-      if (tiktokStatus.connected) updateTikTokStatus("disconnected", "A conexão com a LIVE foi encerrada; tentando novamente.");
-      scheduleTikTokReconnect();
-    });
-    const roomId = await live.connect();
-    if (tiktokSocket === live) updateTikTokStatus("connected", "Conectado à LIVE de " + tiktokUsername + " (sala " + String(roomId) + "); aguardando eventos reais.", true);
-    live.on(EventType.roomUserSeq, data => {
-      const count = Number(data?.viewerCount ?? data?.userCount ?? data?.total);
-      if (Number.isFinite(count) && count >= 0) broadcast({ type: "viewer_count", viewerCount: Math.floor(count) });
-    });
-  } catch (err) {
-    if (tiktokSocket === live) tiktokSocket = null;
-    const detail = String(err?.message || err || "erro inesperado").slice(0, 220);
-    const waitingForLive = /not currently live|isn't live|not live|no active live|live room.*not found|useroffline|not online/i.test(detail);
-    if (waitingForLive) updateTikTokStatus("waiting-for-live", "Não foi possível encontrar uma LIVE pública ativa de " + tiktokUsername + "; nova tentativa em 30 segundos.", false);
-    else updateTikTokStatus("connection-error", "Falha no PirateTok Live JS: " + detail, false);
-    console.error("[PirateTok LIVE]", detail);
-    scheduleTikTokReconnect();
+  if (!eulerApiKey) {
+    updateTikTokStatus("needs-api-key", "Configure EULERSTREAM_API_KEY nas variáveis do Render.");
+    return;
   }
+  if (tiktokSocket && [WebSocket.CONNECTING, WebSocket.OPEN].includes(tiktokSocket.readyState)) return;
+  const generation = ++connectionGeneration;
+  const url = new URL("wss://ws.eulerstream.com");
+  url.searchParams.set("uniqueId", tiktokUsername);
+  url.searchParams.set("apiKey", eulerApiKey);
+  url.searchParams.set("features.bundleEvents", "true");
+  url.searchParams.set("features.normalizeUniqueId", "true");
+  url.searchParams.set("features.syntheticPresence", "true");
+  url.searchParams.set("schemaVersion", "v1");
+  updateTikTokStatus("connecting", "Conectando à LIVE de " + tiktokUsername + " pelo EulerStream WebSocket…");
+  const socket = new WebSocket(url.toString(), { handshakeTimeout: 15000 });
+  tiktokSocket = socket;
+  socket.on("open", () => {
+    if (generation !== connectionGeneration) return;
+    updateTikTokStatus("connected", "WebSocket EulerStream conectado para " + tiktokUsername + "; aguardando eventos reais.", true);
+  });
+  socket.on("message", frame => {
+    if (generation === connectionGeneration) handleEulerFrame(frame);
+  });
+  socket.on("error", err => {
+    if (generation !== connectionGeneration) return;
+    const detail = String(err?.message || "erro de WebSocket").slice(0, 180);
+    console.error("[EulerStream LIVE] erro:", detail);
+    updateTikTokStatus("connection-error", "EulerStream: " + detail, false);
+  });
+  socket.on("close", (code, reason) => {
+    if (generation !== connectionGeneration) return;
+    tiktokSocket = null;
+    const detail = Buffer.isBuffer(reason) ? reason.toString("utf8") : String(reason || "");
+    const offline = code === 4404 || /not live|offline/i.test(detail);
+    updateTikTokStatus(offline ? "waiting-for-live" : "disconnected", offline ? "A LIVE de " + tiktokUsername + " não está ativa; nova tentativa em 30 segundos." : "EulerStream encerrou a conexão (" + code + "); tentando novamente.", false);
+    scheduleTikTokReconnect();
+  });
 }
-
 const allowedTypes = new Set(["chat", "gift", "likes"]);
 wss.on("connection", socket => {
   clients.add(socket);
