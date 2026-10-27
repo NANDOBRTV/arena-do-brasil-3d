@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: arena-do-brasil-3d-gateway
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
