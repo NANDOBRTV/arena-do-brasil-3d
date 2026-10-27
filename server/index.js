@@ -70,31 +70,52 @@ async function connectTikTok() {
   if (tiktokSocket && (tiktokSocket.readyState === WebSocket.OPEN || tiktokSocket.readyState === WebSocket.CONNECTING)) return;
   updateTikTokStatus("connecting", "Validando a chave e preparando conexão segura com TikTool…");
   try {
-    // TikTool's current quick-start flow mints a short-lived JWT before opening the WebSocket.
-    const authResponse = await fetch("https://api.tik.tools/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ allowed_creators: [tiktokUsername], expire_after: 600, max_websockets: 1 })
-    });
+    // Try the documented API edge first. Paid TikTool plans can use direct.tik.tools
+    // to bypass edge/WAF 403s; Sandbox keys must remain on api.tik.tools.
+    const authHosts = ["https://api.tik.tools", "https://direct.tik.tools"];
+    let authResponse = null;
     let authPayload = {};
     let authText = "";
-    try {
-      authText = await authResponse.text();
-      try { authPayload = JSON.parse(authText); } catch {}
-    } catch {}
+    let selectedHost = "https://api.tik.tools";
+    for (const host of authHosts) {
+      selectedHost = host;
+      try {
+        const response = await fetch(host + "/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ allowed_creators: [tiktokUsername], expire_after: 600, max_websockets: 1 })
+        });
+        let responseText = "";
+        let responsePayload = {};
+        try {
+          responseText = await response.text();
+          try { responsePayload = JSON.parse(responseText); } catch {}
+        } catch {}
+        authResponse = response;
+        authText = responseText;
+        authPayload = responsePayload;
+        if (response.ok && responsePayload?.data?.token) break;
+        // Only fall back to the direct host for an edge 403; other API errors
+        // (invalid key, quota, expired evaluation) should be reported as-is.
+        if (!(host.includes("api.tik.tools") && !host.includes("direct.tik.tools") && response.status === 403 && /^\\s*<!doctype html|^\\s*<html/i.test(responseText))) break;
+      } catch (err) {
+        authText = String(err?.message || err || "falha de rede");
+        authResponse = null;
+        if (host === authHosts[0]) continue;
+      }
+    }
     const jwt = authPayload?.data?.token;
-    if (!authResponse.ok || !jwt) {
-      // Surface TikTool's response reason (never the API key) to distinguish bad key,
-      // exhausted quota, plan restrictions, and malformed requests.
-      const detail = String(authPayload?.message || authPayload?.error || authPayload?.data?.message || authPayload?.detail || authText || ("HTTP " + authResponse.status))
+    if (!authResponse?.ok || !jwt) {
+      const detail = String(authPayload?.message || authPayload?.error || authPayload?.data?.message || authPayload?.detail || authText || ("HTTP " + (authResponse?.status || "desconhecido")))
         .replace(tiktoolApiKey, "[chave ocultada]")
         .replace(/[\\r\\n\\t]+/g, " ")
         .slice(0, 180);
-      updateTikTokStatus("error", "TikTool JWT HTTP " + authResponse.status + ": " + detail);
+      updateTikTokStatus("error", "TikTool JWT (" + (selectedHost.includes("direct.tik.tools") ? "direct" : "api") + ") HTTP " + (authResponse?.status || "rede") + ": " + detail);
       scheduleTikTokReconnect();
       return;
     }
-    const url = "wss://api.tik.tools/?uniqueId=" + encodeURIComponent(tiktokUsername) + "&jwtKey=" + encodeURIComponent(jwt);
+    const wsHost = selectedHost.replace("https://", "wss://");
+    const url = wsHost + "/?uniqueId=" + encodeURIComponent(tiktokUsername) + "&jwtKey=" + encodeURIComponent(jwt);
     const socket = new WebSocket(url);
     tiktokSocket = socket;
     socket.on("open", () => updateTikTokStatus("connected", "Conectado ao fluxo TikTok LIVE pelo TikTool para @" + tiktokUsername, true));
