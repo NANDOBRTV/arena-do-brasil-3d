@@ -9,7 +9,7 @@ Protótipo inicial de jogo 3D cartoon para lives. Inclui arena Three.js, lutador
 - [x] Presentes simulados, curtidas, feed, ranking e áudio.
 - [x] Gateway Node.js + WebSocket para eventos sintéticos.
 - [x] Endpoint de saúde `/health` e testes unitários.
-- [ ] Conector real TikTok LIVE — não configurado.
+- [x] Adaptador TikTok LIVE no servidor para comentários, presentes, curtidas, follows e shares (depende da live estar ativa e do conector conseguir acessar o TikTok).
 - [ ] Modelos 3D profissionais e teste de ponta a ponta no Render.
 
 ## Executar
@@ -30,6 +30,13 @@ npm run build
 `render.yaml` descreve o gateway. Conecte este repositório ao Render para publicar. Ainda não há deploy confirmado.
 
 ## TikTok LIVE
-Este projeto não finge ter conexão com TikTok. Adicione um adaptador autorizado depois de validar o método de integração; nunca exponha tokens no navegador ou em variáveis `VITE_*`.
+O servidor usa `tiktok-live-connector` (integração comunitária não oficial) com o usuário definido por `TIKTOK_USERNAME` (padrão `nandobr_ofc`). Em Render, configure a variável `TIKTOK_USERNAME=nandobr_ofc` e use Node.js 20 ou superior. O status está disponível em `/api/tiktok/status` e `/health`.
+
+- Comentários `!verde`, `!azul`, `!ataque` e `!defesa` controlam a arena; outros comentários aparecem no feed.
+- Presentes reais são convertidos em efeitos visuais/combate conforme o valor em diamantes: até 1 = confete; 2–9 = escudo; 10+ = especial.
+- Curtidas, novos seguidores e compartilhamentos são encaminhados para a interface.
+- Se a live estiver offline ou a conexão falhar, o servidor tenta reconectar após 30 segundos. O simulador continua disponível.
+
+**Limitação importante:** não é uma API oficial do TikTok. O protocolo pode mudar, o acesso depende de a live estar ativa e o conector funcionar no ambiente. Nunca envie cookies ou tokens pessoais ao projeto.
 
 Os nomes dos lutadores são personagens fictícios. Mantenha a sátira claramente identificada e não apresente falas inventadas como declarações reais.
