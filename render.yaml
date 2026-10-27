@@ -9,3 +9,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: TIKTOK_USERNAME
+        value: nandobr_ofc
