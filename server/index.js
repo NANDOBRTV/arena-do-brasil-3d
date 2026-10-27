@@ -102,7 +102,7 @@ async function connectTikTok() {
 
     live.on("chat", event => {
       const comment = String(event?.comment || "").slice(0, 500);
-      const first = comment.trim().toLowerCase().split(/\\s+/)[0];
+      const first = comment.trim().toLowerCase().split(/\s+/)[0];
       const command = ["!verde", "!azul", "!ataque", "!defesa"].includes(first) ? first : null;
       broadcast({ type: "chat", viewer: viewerName(event), comment, command, eventId: String(event?.msgId || event?.messageId || "") });
     });
