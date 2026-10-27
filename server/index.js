@@ -113,8 +113,8 @@ async function connectTikTok() {
 
     live.on(WebcastEvent.GIFT, event => {
       if (event?.repeatEnd === false) return;
-      const giftName = String(event?.giftDetails?.giftName || event?.giftName || ("Presente " + (event?.giftId ?? ""))).slice(0, 80);
-      const diamonds = Math.max(0, Number(event?.diamondCount ?? event?.giftDetails?.diamondCount ?? 0) || 0);
+      const giftName = String(event?.extendedGiftInfo?.name || event?.giftDetails?.giftName || event?.giftName || ("Presente " + (event?.giftId ?? ""))).slice(0, 80);
+      const diamonds = Math.max(0, Number(event?.diamondCount ?? event?.extendedGiftInfo?.diamondCount ?? event?.giftDetails?.diamondCount ?? 0) || 0);
       const gift = diamonds >= 10 ? "special" : diamonds >= 2 ? "shield" : "confetti";
       broadcast({ type: "gift", gift, viewer: viewerName(event), giftName, diamonds, eventId: String(event?.msgId || event?.giftId || "") + ":" + String(event?.repeatCount || 1) });
     });
