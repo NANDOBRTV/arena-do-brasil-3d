@@ -70,58 +70,13 @@ async function connectTikTok() {
   if (tiktokSocket && (tiktokSocket.readyState === WebSocket.OPEN || tiktokSocket.readyState === WebSocket.CONNECTING)) return;
   updateTikTokStatus("connecting", "Validando a chave e preparando conexão segura com TikTool…");
   try {
-    // Official Tik.Tools JWT flow. The API key stays only in Render's environment.
-    // If no username is configured, discover the first public live channel.
-    let creator = tiktokUsername;
-    if (!creator) {
-      const channelsResponse = await fetch("https://api.tik.tools/api/live/top-channels");
-      const channelsPayload = await channelsResponse.json();
-      creator = String(channelsPayload?.channels?.[0]?.uniqueId || "").trim().replace(/^@/, "");
-      if (!channelsResponse.ok || !creator) {
-        updateTikTokStatus("error", "TikTool não retornou canais ao vivo para selecionar.");
-        scheduleTikTokReconnect();
-        return;
-      }
-    }
-    const jwtBody = JSON.stringify({ allowed_creators: [creator], expire_after: 600, max_websockets: 1 });
-    let authHost = "https://api.tik.tools";
-    let authResponse = await fetch(authHost + "/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: jwtBody
-    });
-    let authText = await authResponse.text();
-    let authPayload = {};
-    try { authPayload = JSON.parse(authText); } catch {}
-
-    // Render can occasionally be blocked by the public edge. Paid TikTool plans
-    // document direct.tik.tools as the server-to-server alternative; try it only
-    // when the public endpoint returns an HTML 403, not for normal API errors.
-    if (authResponse.status === 403 && /^\s*<!doctype html|^\s*<html/i.test(authText)) {
-      authHost = "https://direct.tik.tools";
-      authResponse = await fetch(authHost + "/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: jwtBody
-      });
-      authText = await authResponse.text();
-      authPayload = {};
-      try { authPayload = JSON.parse(authText); } catch {}
-    }
-
-    const jwt = authPayload?.data?.token;
-    if (!authResponse.ok || !jwt) {
-      const detail = String(authPayload?.message || authPayload?.error || authPayload?.data?.message || authPayload?.detail || authText || ("HTTP " + authResponse.status))
-        .replace(tiktoolApiKey, "[chave ocultada]").replace(/[\\r\\n\\t]+/g, " ").slice(0, 180);
-      updateTikTokStatus("error", "TikTool JWT HTTP " + authResponse.status + " (" + authHost.replace("https://", "") + "): " + detail);
-      scheduleTikTokReconnect();
-      return;
-    }
-    const wsHost = authHost === "https://direct.tik.tools" ? "wss://direct.tik.tools" : "wss://api.tik.tools";
-    const url = wsHost + "/?uniqueId=" + encodeURIComponent(creator) + "&jwtKey=" + encodeURIComponent(jwt);
+    // Managed Tik.Tools relay: use the API key directly. The direct.tik.tools
+    // endpoint is restricted to paid plans, so Sandbox keys must use api.tik.tools.
+    const url = "wss://api.tik.tools/?uniqueId=" + encodeURIComponent(tiktokUsername) +
+      "&apiKey=" + encodeURIComponent(tiktoolApiKey);
     const socket = new WebSocket(url);
     tiktokSocket = socket;
-    socket.on("open", () => updateTikTokStatus("connected", "Conectado ao fluxo TikTok LIVE pelo TikTool para @" + tiktokUsername, true));
+    socket.on("open", () => updateTikTokStatus("connected", "Conexão WebSocket aberta para @" + tiktokUsername + "; aguardando eventos da live.", true));
     socket.on("message", raw => {
       let packet;
       try { packet = JSON.parse(raw.toString()); } catch { return; }
