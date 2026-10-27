@@ -91,5 +91,6 @@ connectForm?.addEventListener("submit",async e=>{
  finally{connectBtn.disabled=false;}
 });
 enterGameBtn?.addEventListener("click",()=>{connectScreen.hidden=true;});
-\nfunction resize(){const r=$("arena").getBoundingClientRect();camera.aspect=r.width/Math.max(1,r.height);camera.updateProjectionMatrix();renderer.setSize(r.width,r.height,false);}window.addEventListener("resize",resize);resize();renderState();
+
+function resize(){const r=$("arena").getBoundingClientRect();camera.aspect=r.width/Math.max(1,r.height);camera.updateProjectionMatrix();renderer.setSize(r.width,r.height,false);}window.addEventListener("resize",resize);resize();renderState();
 let t=0;function animate(){requestAnimationFrame(animate);t+=.016;for(const [name,f] of Object.entries(fighters)){const action=f.userData.action||0,hit=f.userData.hit||0;f.position.x=f.userData.baseX+(action>0?(name==="green"?1:-1)*Math.sin((.42-action)/.42*Math.PI)*.85:0);f.position.y=Math.abs(Math.sin(t*2.4+(name==="green"?0:1)))*.035+(hit>0?Math.sin((.32-hit)/.32*Math.PI)*.12:0);f.rotation.z=(hit>0?(name==="green"?1:-1)*Math.sin((.32-hit)/.32*Math.PI)*.22:0)+(state.running?Math.sin(t*2.6+(name==="green"?0:1))*.018:0);f.userData.action=Math.max(0,action-.016);f.userData.hit=Math.max(0,hit-.016);}for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.m.position.add(p.v);p.v.y-=.003;p.life--;if(p.life<=0){scene.remove(p.m);p.m.geometry.dispose();p.m.material.dispose();particles.splice(i,1);}}renderer.render(scene,camera);}animate();
