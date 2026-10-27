@@ -83,23 +83,42 @@ async function connectTikTok() {
         return;
       }
     }
-    const authResponse = await fetch("https://api.tik.tools/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
+    const jwtBody = JSON.stringify({ allowed_creators: [creator], expire_after: 600, max_websockets: 1 });
+    let authHost = "https://api.tik.tools";
+    let authResponse = await fetch(authHost + "/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ allowed_creators: [creator], expire_after: 600, max_websockets: 1 })
+      body: jwtBody
     });
-    const authText = await authResponse.text();
+    let authText = await authResponse.text();
     let authPayload = {};
     try { authPayload = JSON.parse(authText); } catch {}
+
+    // Render can occasionally be blocked by the public edge. Paid TikTool plans
+    // document direct.tik.tools as the server-to-server alternative; try it only
+    // when the public endpoint returns an HTML 403, not for normal API errors.
+    if (authResponse.status === 403 && /^\\s*<!doctype html|^\\s*<html/i.test(authText)) {
+      authHost = "https://direct.tik.tools";
+      authResponse = await fetch(authHost + "/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jwtBody
+      });
+      authText = await authResponse.text();
+      authPayload = {};
+      try { authPayload = JSON.parse(authText); } catch {}
+    }
+
     const jwt = authPayload?.data?.token;
     if (!authResponse.ok || !jwt) {
       const detail = String(authPayload?.message || authPayload?.error || authPayload?.data?.message || authPayload?.detail || authText || ("HTTP " + authResponse.status))
         .replace(tiktoolApiKey, "[chave ocultada]").replace(/[\\r\\n\\t]+/g, " ").slice(0, 180);
-      updateTikTokStatus("error", "TikTool JWT HTTP " + authResponse.status + ": " + detail);
+      updateTikTokStatus("error", "TikTool JWT HTTP " + authResponse.status + " (" + authHost.replace("https://", "") + "): " + detail);
       scheduleTikTokReconnect();
       return;
     }
-    const url = "wss://api.tik.tools/?uniqueId=" + encodeURIComponent(creator) + "&jwtKey=" + encodeURIComponent(jwt);
+    const wsHost = authHost === "https://direct.tik.tools" ? "wss://direct.tik.tools" : "wss://api.tik.tools";
+    const url = wsHost + "/?uniqueId=" + encodeURIComponent(creator) + "&jwtKey=" + encodeURIComponent(jwt);
     const socket = new WebSocket(url);
     tiktokSocket = socket;
     socket.on("open", () => updateTikTokStatus("connected", "Conectado ao fluxo TikTok LIVE pelo TikTool para @" + tiktokUsername, true));
