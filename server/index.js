@@ -68,15 +68,32 @@ async function connectTikTok() {
     return;
   }
   if (tiktokSocket && (tiktokSocket.readyState === WebSocket.OPEN || tiktokSocket.readyState === WebSocket.CONNECTING)) return;
-  updateTikTokStatus("connecting", "Validando a chave e preparando conexão segura com TikTool…");
+  updateTikTokStatus("connecting", "Validando a chave com TikTool e solicitando credencial temporária…");
   try {
-    // Managed Tik.Tools relay: use the API key directly. The direct.tik.tools
-    // endpoint is restricted to paid plans, so Sandbox keys must use api.tik.tools.
+    // Use the documented JWT flow so authentication failures can be reported
+    // before opening the WebSocket. The API key stays on the server.
+    const authResponse = await fetch(
+      "https://api.tik.tools/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allowed_creators: [tiktokUsername], expire_after: 600, max_websockets: 1 })
+      }
+    );
+    let authBody = {};
+    try { authBody = await authResponse.json(); } catch {}
+    const token = authBody?.data?.token;
+    if (!authResponse.ok || !token) {
+      const detail = String(authBody?.message || authBody?.error || authBody?.detail || ("HTTP " + authResponse.status));
+      updateTikTokStatus("auth-error", "TikTool recusou a autenticação (" + detail.slice(0, 120) + "). Confira a validade/plano da chave no painel Tik.Tools.");
+      scheduleTikTokReconnect();
+      return;
+    }
     const url = "wss://api.tik.tools/?uniqueId=" + encodeURIComponent(tiktokUsername) +
-      "&apiKey=" + encodeURIComponent(tiktoolApiKey);
+      "&jwtKey=" + encodeURIComponent(token);
     const socket = new WebSocket(url);
     tiktokSocket = socket;
-    socket.on("open", () => updateTikTokStatus("connected", "Conexão WebSocket aberta para @" + tiktokUsername + "; aguardando eventos da live.", true));
+    socket.on("open", () => updateTikTokStatus("connected", "Conectado à LIVE de @" + tiktokUsername + "; aguardando eventos.", true));
     socket.on("message", raw => {
       let packet;
       try { packet = JSON.parse(raw.toString()); } catch { return; }
@@ -97,10 +114,11 @@ async function connectTikTok() {
       } else if (event === "like") {
         const count = Math.max(1, Math.min(1000000, Math.floor(Number(data?.likeCount ?? data?.count ?? 1) || 1)));
         broadcast({ type: "likes", count, viewer });
-      } else if (event === "social" || event === "follow" || event === "share") {
+      } else if (event === "social" || event === "follow" || event === "share" || event === "member") {
         const action = String(data?.event || data?.action || event).toLowerCase();
         if (action.includes("follow")) broadcast({ type: "social", event: "follow", viewer });
         else if (action.includes("share")) broadcast({ type: "social", event: "share", viewer });
+        else if (event === "member" || action.includes("member")) broadcast({ type: "social", event: "member", viewer });
       }
     });
     socket.on("error", err => {
@@ -108,11 +126,13 @@ async function connectTikTok() {
     });
     socket.on("close", (code, reason) => {
       if (tiktokSocket === socket) tiktokSocket = null;
-      updateTikTokStatus("disconnected", "TikTool encerrou a conexão (" + code + "). Nova tentativa em 30 segundos." + (reason?.length ? " " + reason.toString().slice(0, 80) : ""));
+      const details = ({ 4401: "chave/token inválido", 4403: "sem permissão para este perfil", 4404: "perfil não está ao vivo", 4429: "limite de conexões atingido" })[code];
+      updateTikTokStatus("disconnected", "TikTool encerrou a conexão (" + code + ")" + (details ? ": " + details : "") + ". Nova tentativa em 30 segundos." + (reason?.length ? " " + reason.toString().slice(0, 80) : ""));
       scheduleTikTokReconnect();
     });
   } catch (err) {
-    updateTikTokStatus("error", "Falha ao autenticar no TikTool: " + String(err?.message || err || "erro inesperado").slice(0, 140));
+    updateTikTokStatus("error", "Falha ao autenticar/conectar no TikTool: " + String(err?.message || err || "erro inesperado").slice(0, 140));
+    if (tiktokSocket && tiktokSocket.readyState !== WebSocket.OPEN) tiktokSocket = null;
     scheduleTikTokReconnect();
   }
 }
