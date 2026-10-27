@@ -146,8 +146,14 @@ async function connectTikTok() {
   } catch (err) {
     tiktokSocket = null;
     const detail = String(err?.message || err || "erro inesperado").slice(0, 180);
-    updateTikTokStatus("auth-error", "SDK TikTool não conseguiu conectar: " + detail);
-    console.error("[TikTok LIVE / TikTool SDK]", detail);
+    const waitingForLive = /not currently live|isn't live|not live|no active live|live room.*not found/i.test(detail);
+    if (waitingForLive) {
+      updateTikTokStatus("waiting-for-live", "A conta @" + tiktokUsername + " não está ao vivo no TikTok neste momento. Deixe esta conexão ativa; o servidor tentará novamente automaticamente.", false);
+      console.info("[TikTok LIVE / TikTool SDK] LIVE offline; retry scheduled.");
+    } else {
+      updateTikTokStatus("auth-error", "SDK TikTool não conseguiu conectar: " + detail);
+      console.error("[TikTok LIVE / TikTool SDK]", detail);
+    }
     scheduleTikTokReconnect();
   }
 }
