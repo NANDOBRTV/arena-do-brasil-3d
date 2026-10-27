@@ -81,7 +81,7 @@ function connectTikTok() {
     const viewer = String(data?.user?.uniqueId || data?.user_unique_id || data?.uniqueId || "Espectador").slice(0, 24);
     if (event === "chat") {
       const comment = String(data?.comment || "").slice(0, 500);
-      const first = comment.trim().toLowerCase().split(/\\s+/)[0];
+      const first = comment.trim().toLowerCase().split(/\s+/)[0];
       const command = ["!verde", "!azul", "!ataque", "!defesa"].includes(first) ? first : null;
       broadcast({ type: "chat", viewer, comment, command, eventId: String(data?.msgId || data?.messageId || "") });
     } else if (event === "gift") {
