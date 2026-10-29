@@ -6,3 +6,5 @@ test("commands normalize and reject unknown commands",()=>{assert.equal(normaliz
 test("votes update team totals and viewer ranking",()=>{const s=createInitialState();assert.equal(recordVote(s,"!verde","Nando").ok,true);recordVote(s,"!azul","Nando");assert.equal(s.votes.green,1);assert.equal(s.votes.blue,1);assert.equal(s.ranking.Nando,2);});
 test("winner is determined by remaining health",()=>{const s=createInitialState();s.green.health=80;s.blue.health=30;assert.equal(getWinner(s),"green");s.blue.health=80;assert.equal(getWinner(s),"draw");});
 test("round duration is ten minutes and energy scales with the round",()=>{const s=createInitialState();assert.equal(s.remaining,600);assert.equal(s.green.health,600);assert.equal(s.blue.health,600);});
+
+test("each chat vote adds exactly one vote and does not damage fighters",()=>{const s=createInitialState();const beforeGreen=s.green.health,beforeBlue=s.blue.health;recordVote(s,"!verde","Viewer");assert.equal(s.votes.green,1);assert.equal(s.votes.blue,0);assert.equal(s.green.health,beforeGreen);assert.equal(s.blue.health,beforeBlue);recordVote(s,"!verde","Viewer");assert.equal(s.votes.green,2);});
