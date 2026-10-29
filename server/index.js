@@ -239,7 +239,7 @@ function connectPirateTok() {
   const generation = ++pirateGeneration;
   pirateConnecting = true;
   updateTikTokStatus("connecting", "Conectando diretamente à LIVE de @" + tiktokUsername + " pelo PirateTok (sem chave de API)…");
-  const client = new TikTokLiveClient(tiktokUsername).maxRetries(5).staleTimeout(90000).heartbeatInterval(10000);
+  const client = new TikTokLiveClient(tiktokUsername).language("pt").region("BR").maxRetries(5).staleTimeout(90000).heartbeatInterval(10000);
   const getViewer = data => String(data?.user?.uniqueId || data?.user?.nickname || data?.user?.displayId || data?.nickname || "Espectador").slice(0, 24);
   client.on(EventType.chat, data => {
     if (generation !== pirateGeneration) return;
