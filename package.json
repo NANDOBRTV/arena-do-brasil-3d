@@ -13,12 +13,13 @@
   "dependencies": {
     "express": "^4.21.2",
     "three": "^0.180.0",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "piratetok-live-js": "^0.3.0"
   },
   "devDependencies": {
     "vite": "^6.4.1"
   },
   "engines": {
-    "node": ">=22.19"
+    "node": ">=22.19.0"
   }
 }
