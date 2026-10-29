@@ -11,5 +11,3 @@ services:
         value: production
       - key: TIKTOK_USERNAME
         value: nandobr_ofc
-        sync: false
-        sync: false
