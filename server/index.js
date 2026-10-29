@@ -43,7 +43,7 @@ app.post("/api/tiktok/connect", (req, res) => {
     try { old.close(); } catch {}
   }
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  updateTikTokStatus("connecting", "Solicitando conexão à LIVE de " + requested + " pelo EulerStream WebSocket…");
+  updateTikTokStatus("connecting", "Solicitando conexão direta à LIVE de " + requested + " pelo PirateTok…");
   connectTikTok();
   return res.json({ ok: true, username: requested, configured: true, state: tiktokStatus.state, message: tiktokStatus.message });
 });
@@ -235,9 +235,7 @@ function connectPirateTok() {
     updateTikTokStatus("needs-username", "Informe o usuário da LIVE para conectar.");
     return;
   }
-  if (pirateConnecting || (pirateClient && !pirateClient.abortController)) {
-    if (tiktokStatus.connected) return;
-  }
+  if (pirateConnecting || tiktokStatus.connected) return;
   const generation = ++pirateGeneration;
   pirateConnecting = true;
   updateTikTokStatus("connecting", "Conectando diretamente à LIVE de @" + tiktokUsername + " pelo PirateTok (sem chave de API)…");
