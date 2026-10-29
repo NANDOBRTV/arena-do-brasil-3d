@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import {createInitialState,applyDamage,recordVote,getWinner,ROUND_SECONDS} from "./game.js";
 import "./style.css";
-const $=id=>document.getElementById(id);let state=createInitialState(),timer=null,audio=false,shield={green:0,blue:0};
+const $=id=>document.getElementById(id);let state=createInitialState(),timer=null,audio=false,shield={green:0,blue:0};const viewerTeams=new Map();
 const scene=new THREE.Scene();scene.background=new THREE.Color("#10172b");scene.fog=new THREE.Fog("#10172b",18,42);
 const camera=new THREE.PerspectiveCamera(48,1,.1,100);camera.position.set(0,7,15);camera.lookAt(0,1,0);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;$("arena").prepend(renderer.domElement);$("three-fallback").remove();
@@ -88,16 +88,48 @@ function finishRound(){if(state.ended&&state.history.some(item=>item.round===sta
 function nextRound(){const history=[...state.history];const next=state.round+1;stop();state=createInitialState();state.history=history;state.round=next;green.position.x=-2.2;blue.position.x=2.2;green.rotation.y=0;blue.rotation.y=Math.PI;renderState();log("Rodada "+String(next).padStart(2,"0")+" iniciada; votos zerados.");}
 function start(){if(state.ended)nextRound();state.running=true;if(timer)clearInterval(timer);timer=setInterval(()=>{if(!state.running)return;state.remaining--;if(state.remaining<=0){state.remaining=0;finishRound();}renderState();},1000);renderState();log("Partida iniciada");}
 function reset(){stop();state=createInitialState();green.position.x=-2.2;blue.position.x=2.2;green.rotation.y=0;blue.rotation.y=Math.PI;$("event-feed").innerHTML='<div class="empty-state">Os eventos da partida aparecerão aqui.</div>';$("event-count").textContent="0";renderState();log("Arena reiniciada");}
-function command(cmd,viewer=$("viewer-name").value||"Visitante"){if(state.ended)nextRound();const result=recordVote(state,cmd,viewer);if(!result.ok)return;if(result.type==="vote"){if(!state.running)start();if(result.team==="green"){applyDamage(state,"blue",1);animateStrike("green","blue");}else{applyDamage(state,"green",1);animateStrike("blue","green");}if(state.ended)finishRound();log(result.viewer+" votou no "+(result.team==="green"?"Time Verde":"Time Azul"));burst(result.team==="green"?"#21b875":"#428bff",8);}else if(result.type==="attack"){const team=Math.random()<.5?"green":"blue",target=team==="green"?"blue":"green";applyDamage(state,target,8);animateStrike(team,target);if(state.ended)finishRound();log(result.viewer+" pediu ataque!");burst("#ff7043",22);}else{const target=Math.random()<.5?"green":"blue";shield[target]=Date.now()+5000;state[target].shieldUntil=shield[target];log(result.viewer+" pediu defesa!");burst("#65d5ff",12);}sound(cmd==="!ataque"?120:360);renderState();}
+function command(cmd,viewer=$("viewer-name").value||"Visitante"){
+ if(state.ended)nextRound();
+ const result=recordVote(state,cmd,viewer);if(!result.ok)return;
+ if(result.type==="vote"){
+  viewerTeams.set(result.viewer,result.team);
+  if(!state.running)start();
+  log(result.viewer+" votou no "+(result.team==="green"?"Time Verde":"Time Azul")+" (+1 voto). Envie presentes para ativar golpes.");
+  burst(result.team==="green"?"#21b875":"#428bff",5);
+ }else{
+  if(!state.running)start();
+  log(result.viewer+(result.type==="attack"?" pediu ataque":" pediu defesa")+"; os golpes e escudos de combate são ativados por presentes.");
+  burst(result.type==="attack"?"#ff7043":"#65d5ff",8);
+ }
+ renderState();
+}
 document.querySelectorAll("[data-command]").forEach(b=>b.addEventListener("click",()=>command(b.dataset.command)));
 $("send-comment").addEventListener("click",()=>{const v=$("viewer-name").value||"Visitante";command("!verde",v);});
-function processGift(gift,viewer,source="simulado",giftName=""){if(gift==="confetti")burst("#ffd166",65);if(gift==="shield"){state.green.shieldUntil=Date.now()+6000;state.blue.shieldUntil=Date.now()+6000;burst("#65d5ff",25);}if(gift==="special"){const target=state.green.health>state.blue.health?"green":"blue";applyDamage(state,target,15);if(state.ended)finishRound();burst("#ff5c7a",50);}log(viewer+" enviou presente "+source+": "+(giftName||gift));sound(520);renderState();}
+function processGift(gift,viewer,source="simulado",giftName="",diamonds=0){
+ if(state.ended)nextRound();
+ if(!state.running)start();
+ const team=viewerTeams.get(viewer)||(state.green.health<=state.blue.health?"green":"blue");
+ const target=team==="green"?"blue":"green";
+ if(gift==="confetti"){
+  const damage=Math.max(1,Math.min(5,1+Math.floor((Number(diamonds)||0)/2)));
+  applyDamage(state,target,damage);animateStrike(team,target);burst("#ffd166",35);
+ }else if(gift==="shield"){
+  state[team].shieldUntil=Date.now()+6000;shield[team]=state[team].shieldUntil;burst("#65d5ff",25);
+ }else if(gift==="special"){
+  const damage=Math.max(12,Math.min(60,12+Math.floor((Number(diamonds)||0)/5)));
+  applyDamage(state,target,damage);animateStrike(team,target);burst("#ff5c7a",50);
+ }
+ if(state.ended)finishRound();
+ log(viewer+" enviou presente "+source+": "+(giftName||gift)+(gift==="shield"?" — escudo do "+(team==="green"?"Time Verde":"Time Azul"): " — golpe do "+(team==="green"?"Time Verde":"Time Azul")));
+ sound(gift==="special"?120:520);renderState();
+}
 document.querySelectorAll("[data-gift]").forEach(b=>b.addEventListener("click",()=>processGift(b.dataset.gift,$("viewer-name").value||"Visitante")));
-$("likes-btn").addEventListener("click",()=>{const n=Math.max(1,Math.min(1000000,Number($("likes-input").value)||1));state.likes+=n;log("+"+n.toLocaleString("pt-BR")+" curtidas simuladas");burst("#ff78b8",Math.min(80,Math.ceil(n/3)));});
+function processLikes(count,viewer="Espectador",source="simuladas"){const n=Math.max(1,Math.min(1000000,Math.floor(Number(count)||1)));state.likes+=n;log("+"+n.toLocaleString("pt-BR")+" curtidas "+source+(viewer&&viewer!=="Espectador"?" de @"+viewer:""));burst("#ff78b8",Math.min(35,Math.ceil(n/10)));renderState();}
+$("likes-btn").addEventListener("click",()=>processLikes($("likes-input").value,$("viewer-name").value||"Visitante","simuladas"));
 $("start-btn").addEventListener("click",start);$("pause-btn").addEventListener("click",()=>{state.running=!state.running;if(state.running)start();else{if(timer)clearInterval(timer);timer=null;log("Partida pausada");renderState();}});$("reset-btn").addEventListener("click",reset);$("audio-btn").addEventListener("click",()=>{audio=!audio;$("audio-btn").textContent=audio?"🔊 Som ativado":"🔇 Som desativado";sound(440);});
-const params=new URLSearchParams(location.search),wsUrl=params.get("ws")||(location.hostname!=="localhost"&&location.hostname!=="127.0.0.1"?(location.protocol==="https:"?"wss://":"ws://")+location.host+"/events":"");if(wsUrl){try{const ws=new WebSocket(wsUrl);ws.onopen=()=>{$("server-status").textContent="Gateway conectado";$("connection-label").textContent="GATEWAY TESTE";};ws.onmessage=e=>{let d;try{d=JSON.parse(e.data)}catch{return;}if(d.type==="status"){const live=d.tiktok?.connected===true;$("server-status").textContent=d.tiktok?.message||d.message||"Gateway conectado";$("connection-label").textContent=live?"TIKTOK LIVE CONECTADO":d.tiktok?.state==="connecting"?"CONECTANDO TIKTOK":"MODO DE TESTE";return;}if(d.type==="chat"){if(d.command)command(d.command,d.viewer);else if(d.comment)log("@"+d.viewer+": "+d.comment);}if(d.type==="gift")processGift(d.gift,d.viewer||"Espectador","real",d.giftName||"presente");if(d.type==="likes"){$("likes-input").value=d.count;$("likes-btn").click();}if(d.type==="social")log(d.event==="follow"?"@"+d.viewer+" começou a seguir":"@"+d.viewer+" compartilhou a live");};ws.onclose=()=>{$("server-status").textContent="Gateway desconectado";$("connection-label").textContent="GATEWAY DESCONECTADO";};}catch{}}
+const params=new URLSearchParams(location.search),wsUrl=params.get("ws")||(location.hostname!=="localhost"&&location.hostname!=="127.0.0.1"?(location.protocol==="https:"?"wss://":"ws://")+location.host+"/events":"");if(wsUrl){try{const ws=new WebSocket(wsUrl);ws.onopen=()=>{$("server-status").textContent="Gateway conectado";$("connection-label").textContent="GATEWAY TESTE";};ws.onmessage=e=>{let d;try{d=JSON.parse(e.data)}catch{return;}if(d.type==="status"){const live=d.tiktok?.connected===true;const message=d.tiktok?.message||d.message||"Gateway conectado";$("server-status").textContent=message;$("connection-label").textContent=live?"TIKTOK LIVE CONECTADO":d.tiktok?.state==="connecting"?"CONECTANDO TIKTOK":"MODO DE TESTE";const modeTag=$("connection-mode-tag");if(modeTag)modeTag.textContent=live?"LIVE REAL":d.tiktok?.provider==="tiktool"?"TIK.TOOLS":d.tiktok?.provider==="eulerstream-websocket"?"EULERSTREAM":"CONFIGURAR LIVE";if(connectScreen&&!connectScreen.hidden&&connectFeedback&&d.tiktok?.state!=="connecting")connectFeedback.textContent=message;if(live&&enterGameBtn){enterGameBtn.hidden=false;enterGameBtn.textContent="Entrar no jogo conectado";}return;}if(d.type==="chat"){if(d.command)command(d.command,d.viewer);else if(d.comment)log("@"+d.viewer+": "+d.comment);}if(d.type==="gift")processGift(d.gift,d.viewer||"Espectador","real",d.giftName||"presente",Number(d.diamonds)||0);if(d.type==="likes")processLikes(d.count,d.viewer||"Espectador","recebidas da LIVE");if(d.type==="social")log(d.event==="follow"?"@"+d.viewer+" começou a seguir":d.event==="member"?"@"+d.viewer+" entrou na LIVE":"@"+d.viewer+" compartilhou a live");};ws.onclose=()=>{$("server-status").textContent="Gateway desconectado";$("connection-label").textContent="GATEWAY DESCONECTADO";};}catch{}}
 
-const connectScreen=$("connect-screen"),connectForm=$("connect-form"),usernameInput=$("tiktok-username"),connectBtn=$("connect-live-btn"),connectFeedback=$("connect-feedback"),enterGameBtn=$("enter-game-btn");
+const connectScreen=$("connect-screen"),connectForm=$("connect-form"),usernameInput=$("tiktok-username"),connectBtn=$("connect-live-btn"),connectFeedback=$("connect-feedback"),enterGameBtn=$("enter-game-btn");if(connectScreen)connectScreen.hidden=false;
 connectForm?.addEventListener("submit",async e=>{
  e.preventDefault();
  const username=usernameInput.value.trim().replace(/^@/,"");
