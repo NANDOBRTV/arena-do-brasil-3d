@@ -2,30 +2,22 @@
 
 Jogo 3D de sátira política para TikTok LIVE, com arena Three.js, lutadores, rodada de 10 minutos, energia, placar, ranking, efeitos, áudio, feed de eventos e painel de conexão.
 
-## Estado e comportamento
-- Arena 3D e modelos alternativos: se os sprites não estiverem no repositório, o modelo 3D de reserva continua visível.
-- Rodadas de 10 minutos, placar de votos e histórico de resultados.
-- Os comandos `!verde` e `!azul` somam um voto por mensagem; votar não causa dano diretamente.
-- Presentes recebidos pela LIVE ativam os golpes ou o escudo. Curtidas, seguidores, entradas e compartilhamentos aparecem no feed.
-- O painel de conexão abre antes do jogo e informa o estado real do adaptador.
-- Gateway WebSocket em `/events`, status em `/api/tiktok/status` e saúde em `/health`.
-- O jogo continua disponível em modo de teste se o provedor de LIVE não estiver configurado ou não conseguir conectar.
+## Atualização desta versão
+- Painel de conexão aparece antes de entrar no jogo e informa o estado real do conector.
+- Conector de LIVE alterado para **PirateTok Live JS**, uma biblioteca open-source que se conecta diretamente ao WebSocket público do TikTok sem chave de API ou plano pago.
+- Eventos de chat, presentes, curtidas, seguidores, compartilhamentos e entradas são enviados pelo gateway WebSocket para o jogo.
+- `!verde` e `!azul` somam um voto por mensagem; voto não causa dano direto.
+- Presentes ativam golpes ou escudo; curtidas e eventos sociais aparecem no feed.
+- Rodadas de 10 minutos, energia, histórico e ranking continuam funcionando.
+- Se o usuário estiver offline, o protocolo for bloqueado ou o TikTok mudar o WebSocket, o jogo permanece disponível em modo de teste e o conector tenta reconectar.
 
-## Provedores de LIVE
-O servidor prioriza **Tik.Tools** quando `TIKTOOL_API_KEY` está configurada. Se essa variável não estiver definida, usa **EulerStream** quando `EULERSTREAM_API_KEY` estiver disponível.
+## Conexão com TikTok LIVE
+O usuário padrão é `nandobr_ofc` (sem @). No painel, informe o nome exato da conta que está transmitindo. O servidor usa PirateTok diretamente, sem `TIKTOOL_API_KEY`, `EULERSTREAM_API_KEY`, cookies ou tokens pessoais.
 
-### Tik.Tools (preferido)
-1. Crie/consulte a chave no painel oficial Tik.Tools.
-2. No Render, abra o serviço `arena-do-brasil-3d` → Environment.
-3. Adicione `TIKTOOL_API_KEY` com a chave privada. Nunca coloque a chave no código, no HTML ou em mensagens públicas.
-4. Mantenha `TIKTOK_USERNAME=nandobr_ofc` (sem @) ou envie o usuário atual pelo painel.
-5. A aplicação solicita um JWT curto no servidor e abre `wss://api.tik.tools/?uniqueId=...&jwtKey=...`. O token de acesso não é enviado ao frontend.
-
-### EulerStream (alternativa)
-Configure `EULERSTREAM_API_KEY` no Render. A disponibilidade do provedor e a detecção de LIVE dependem do plano e das condições do serviço.
+O serviço está configurado para Node.js 22.19 ou superior, requisito da versão atual de PirateTok Live JS.
 
 ## Desenvolvimento
-Requer Node.js 20+.
+Requer Node.js 22.19+.
 ```sh
 npm install
 npm run dev
@@ -39,7 +31,7 @@ npm run build
 ```
 
 ## Render
-O blueprint `render.yaml` usa `npm install --no-audit --no-fund && npm run build && npm test` e inicia com `npm run server`. A chave do provedor deve ser inserida como variável privada no Render; ela não é incluída no Git.
+O blueprint `render.yaml` executa `npm install --no-audit --no-fund && npm run build && npm test` e inicia com `npm run server`. A conexão não precisa de chave paga.
 
 ## Limitação
-A conexão é feita por provedores de terceiros, não pela API oficial pública do TikTok. A conexão pode falhar se a chave expirar, o plano/cota não permitir acesso, o nome estiver incorreto ou o provedor não detectar a transmissão como ativa.
+PirateTok é uma biblioteca não oficial de código aberto. O TikTok pode alterar o protocolo ou bloquear conexões provenientes de servidores em nuvem. A confirmação real depende de a LIVE pública estar acessível ao conector; não é uma API oficial do TikTok.
