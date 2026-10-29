@@ -156,7 +156,7 @@ async function connectTikTool() {
     const token = body?.data?.token;
     if (!auth.ok || !token) {
       const reason = String(body?.message || body?.error || body?.detail || body?.raw || ("HTTP " + auth.status))
-        .replace(/<[^>]*>/g, " ").replace(/\\s+/g, " ").replace(/(?:apiKey|jwtKey)=\\S+/gi, "$1=[redacted]").trim();
+        .replace(/<[^>]*>/g, " ").replace(/\\s+/g, " ").replace(/\\b(apiKey|jwtKey)=\\S+/gi, "$1=[redacted]").trim();
       updateTikTokStatus("auth-error", "Tik.Tools recusou a autenticação (HTTP " + auth.status + "): " + reason.slice(0, 100) + ". Confira validade, plano e cota da chave no painel.");
       scheduleTikTokReconnect();
       return;
