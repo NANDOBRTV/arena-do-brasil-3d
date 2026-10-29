@@ -72,7 +72,7 @@ function broadcast(payload) {
 function updateTikTokStatus(state, message, connected = false) {
   Object.assign(tiktokStatus, { state, message, connected, updatedAt: new Date().toISOString() });
   broadcast({ type: "status", mode: connected ? "tiktok-live" : "simulator", tiktok: { ...tiktokStatus } });
-  console.log("[EulerStream LIVE]", state, message);
+  console.log("[TikTok LIVE / " + tiktokStatus.provider + "]", state, message);
 }
 function scheduleTikTokReconnect() {
   if (!tiktokUsername || reconnectTimer) return;
@@ -150,12 +150,14 @@ async function connectTikTool() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ allowed_creators: [tiktokUsername], expire_after: 600, max_websockets: 1 })
     });
+    const authText = await auth.text();
     let body = {};
-    try { body = await auth.json(); } catch {}
+    try { body = JSON.parse(authText); } catch { body = { raw: authText }; }
     const token = body?.data?.token;
     if (!auth.ok || !token) {
-      const reason = String(body?.message || body?.error || body?.detail || ("HTTP " + auth.status));
-      updateTikTokStatus("auth-error", "Tik.Tools recusou a chave/token (" + reason.slice(0, 120) + "). Confira a chave Sandbox no painel.");
+      const reason = String(body?.message || body?.error || body?.detail || body?.raw || ("HTTP " + auth.status))
+        .replace(/<[^>]*>/g, " ").replace(/\\s+/g, " ").replace(/(?:apiKey|jwtKey)=\\S+/gi, "$1=[redacted]").trim();
+      updateTikTokStatus("auth-error", "Tik.Tools recusou a autenticação (HTTP " + auth.status + "): " + reason.slice(0, 100) + ". Confira validade, plano e cota da chave no painel.");
       scheduleTikTokReconnect();
       return;
     }
