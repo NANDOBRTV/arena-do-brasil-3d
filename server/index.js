@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
+import { TikTokLiveClient, EventType, isStreakOver, diamondTotal, LikeAccumulator } from "piratetok-live-js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -29,6 +30,13 @@ app.post("/api/tiktok/connect", (req, res) => {
   tiktokStatus.username = requested;
   tiktokStatus.configured = true;
   connectionGeneration++;
+  pirateGeneration++;
+  pirateConnecting = false;
+  if (pirateClient) {
+    const oldPirateClient = pirateClient;
+    pirateClient = null;
+    try { oldPirateClient.disconnect(); } catch {}
+  }
   if (tiktokSocket) {
     const old = tiktokSocket;
     tiktokSocket = null;
@@ -52,18 +60,22 @@ const recentIds = new Map();
 let tiktokUsername = String(process.env.TIKTOK_USERNAME || "nandobr_ofc").trim().replace(/^@/, "");
 const eulerApiKey = String(process.env.EULERSTREAM_API_KEY || "").trim();
 const tiktoolApiKey = String(process.env.TIKTOOL_API_KEY || "").trim();
-const activeProvider = tiktoolApiKey ? "tiktool" : eulerApiKey ? "eulerstream-websocket" : "none";
+const activeProvider = "piratetok-live-js";
 const tiktokStatus = {
   configured: Boolean(tiktokUsername && activeProvider !== "none"),
   provider: activeProvider,
   username: tiktokUsername || null,
   connected: false,
   state: activeProvider === "none" ? "needs-api-key" : "connecting",
-  message: activeProvider === "tiktool" ? "Preparando conexão segura com Tik.Tools…" : activeProvider === "eulerstream-websocket" ? "Preparando conexão EulerStream…" : "Configure TIKTOOL_API_KEY (Tik.Tools) ou EULERSTREAM_API_KEY no Render."
+  message: "Preparando conexão direta com PirateTok Live JS; não precisa de chave de API."
 };
 let tiktokSocket = null;
 let connectionGeneration = 0;
 let reconnectTimer = null;
+let pirateClient = null;
+let pirateConnecting = false;
+let pirateGeneration = 0;
+const likeAccumulator = new LikeAccumulator();
 
 function broadcast(payload) {
   const message = JSON.stringify(payload);
@@ -218,11 +230,75 @@ async function connectTikTool() {
     scheduleTikTokReconnect();
   }
 }
+function connectPirateTok() {
+  if (!tiktokUsername) {
+    updateTikTokStatus("needs-username", "Informe o usuário da LIVE para conectar.");
+    return;
+  }
+  if (pirateConnecting || (pirateClient && !pirateClient.abortController)) {
+    if (tiktokStatus.connected) return;
+  }
+  const generation = ++pirateGeneration;
+  pirateConnecting = true;
+  updateTikTokStatus("connecting", "Conectando diretamente à LIVE de @" + tiktokUsername + " pelo PirateTok (sem chave de API)…");
+  const client = new TikTokLiveClient(tiktokUsername).maxRetries(5).staleTimeout(90000).heartbeatInterval(10000);
+  const getViewer = data => String(data?.user?.uniqueId || data?.user?.nickname || data?.user?.displayId || data?.nickname || "Espectador").slice(0, 24);
+  client.on(EventType.chat, data => {
+    if (generation !== pirateGeneration) return;
+    const comment = String(data?.content || data?.comment || "").slice(0, 500);
+    const command = comment.trim().toLowerCase().split(/\\s+/)[0];
+    broadcast({ type: "chat", viewer: getViewer(data), comment, command: ["!verde", "!azul", "!ataque", "!defesa"].includes(command) ? command : null, eventId: String(data?.msgId || data?.messageId || "") });
+  });
+  client.on(EventType.gift, data => {
+    if (generation !== pirateGeneration || !isStreakOver(data)) return;
+    const giftName = String(data?.gift?.name || data?.giftName || "Presente").slice(0, 80);
+    const diamonds = Math.max(0, Number(diamondTotal(data)) || 0);
+    const gift = diamonds >= 10 ? "special" : diamonds >= 2 ? "shield" : "confetti";
+    const eventId = String(data?.msgId || data?.messageId || "") || giftName + ":" + String(data?.repeatCount || 1) + ":" + Date.now();
+    broadcast({ type: "gift", gift, viewer: getViewer(data), giftName, diamonds, eventId });
+  });
+  client.on(EventType.like, data => {
+    if (generation !== pirateGeneration) return;
+    const stats = likeAccumulator.process(data);
+    const count = Math.max(1, Math.min(1000000, Math.floor(Number(stats?.accumulatedCount || data?.count || data?.likeCount || 1))));
+    broadcast({ type: "likes", count, viewer: getViewer(data) });
+  });
+  client.on(EventType.follow, data => { if (generation === pirateGeneration) broadcast({ type: "social", event: "follow", viewer: getViewer(data) }); });
+  client.on(EventType.share, data => { if (generation === pirateGeneration) broadcast({ type: "social", event: "share", viewer: getViewer(data) }); });
+  client.on(EventType.join, data => { if (generation === pirateGeneration) broadcast({ type: "social", event: "member", viewer: getViewer(data) }); });
+  client.on(EventType.liveEnded, () => {
+    if (generation !== pirateGeneration) return;
+    updateTikTokStatus("waiting-for-live", "A transmissão de @" + tiktokUsername + " terminou. Aguardando nova LIVE…", false);
+  });
+  client.on(EventType.reconnecting, info => {
+    if (generation === pirateGeneration) updateTikTokStatus("reconnecting", "PirateTok está tentando reconectar à LIVE de @" + tiktokUsername + "…", false);
+  });
+  client.on("error", err => {
+    if (generation === pirateGeneration) updateTikTokStatus("connection-error", "PirateTok: " + String(err?.message || err || "erro de conexão").slice(0, 140), false);
+  });
+  client.on(EventType.disconnected, () => {
+    if (generation !== pirateGeneration) return;
+    pirateConnecting = false;
+    if (pirateClient === client) pirateClient = null;
+    updateTikTokStatus("disconnected", "PirateTok desconectou. Tentando novamente em 30 segundos.", false);
+    scheduleTikTokReconnect();
+  });
+  client.connect().then(roomId => {
+    if (generation !== pirateGeneration) { client.disconnect(); return; }
+    pirateConnecting = false;
+    pirateClient = client;
+    updateTikTokStatus("connected", "LIVE conectada pelo PirateTok. Sala " + String(roomId) + "; recebendo eventos reais.", true);
+  }).catch(err => {
+    if (generation !== pirateGeneration) return;
+    pirateConnecting = false;
+    pirateClient = null;
+    updateTikTokStatus("connection-error", "Não foi possível abrir a LIVE pelo PirateTok: " + String(err?.message || err || "usuário offline ou bloqueio do TikTok").slice(0, 140), false);
+    scheduleTikTokReconnect();
+  });
+}
 function connectTikTok() {
-  tiktokStatus.provider = tiktoolApiKey ? "tiktool" : eulerApiKey ? "eulerstream-websocket" : "none";
-  if (tiktoolApiKey) return connectTikTool();
-  if (eulerApiKey) return connectEulerStream();
-  updateTikTokStatus("needs-api-key", "Configure TIKTOOL_API_KEY no Render para usar Tik.Tools, ou EULERSTREAM_API_KEY para EulerStream.");
+  tiktokStatus.provider = "piratetok-live-js";
+  return connectPirateTok();
 }
 function connectEulerStream() {
   if (!tiktokUsername) {
