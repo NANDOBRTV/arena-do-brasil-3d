@@ -1,44 +1,45 @@
 # Arena do Brasil 3D
 
-Protótipo inicial de jogo 3D cartoon para lives. Inclui arena Three.js, lutadores fictícios, combate, painel de controle, comandos simulados, presentes de demonstração, ranking, efeitos e sons locais.
+Jogo 3D de sátira política para TikTok LIVE, com arena Three.js, lutadores, rodada de 10 minutos, energia, placar, ranking, efeitos, áudio, feed de eventos e painel de conexão.
 
-## Estado atual
-- [x] Arena 3D e personagens gerados por código.
-- [x] Combate automático, energia, timer e vencedor.
-- [x] Comandos simulados `!verde`, `!azul`, `!ataque`, `!defesa`.
-- [x] Presentes simulados, curtidas, feed, ranking e áudio.
-- [x] Gateway Node.js + WebSocket para eventos sintéticos.
-- [x] Endpoint de saúde `/health` e testes unitários.
-- [x] Adaptador TikTok LIVE no servidor para comentários, presentes, curtidas, follows e shares (depende da live estar ativa e do conector conseguir acessar o TikTok).
-- [ ] Refinar modelos 3D, animações de combate e teste de ponta a ponta no Render.
-- [x] Jogo abre direto em modo de teste; conexão LIVE foi adiada para a etapa final.
-- [x] Golpes com movimento visível dos braços e detalhes faciais adicionais nos lutadores.
+## Estado e comportamento
+- Arena 3D e modelos alternativos: se os sprites não estiverem no repositório, o modelo 3D de reserva continua visível.
+- Rodadas de 10 minutos, placar de votos e histórico de resultados.
+- Os comandos `!verde` e `!azul` somam um voto por mensagem; votar não causa dano diretamente.
+- Presentes recebidos pela LIVE ativam os golpes ou o escudo. Curtidas, seguidores, entradas e compartilhamentos aparecem no feed.
+- O painel de conexão abre antes do jogo e informa o estado real do adaptador.
+- Gateway WebSocket em `/events`, status em `/api/tiktok/status` e saúde em `/health`.
+- O jogo continua disponível em modo de teste se o provedor de LIVE não estiver configurado ou não conseguir conectar.
 
-## Executar
+## Provedores de LIVE
+O servidor prioriza **Tik.Tools** quando `TIKTOOL_API_KEY` está configurada. Se essa variável não estiver definida, usa **EulerStream** quando `EULERSTREAM_API_KEY` estiver disponível.
+
+### Tik.Tools (preferido)
+1. Crie/consulte a chave no painel oficial Tik.Tools.
+2. No Render, abra o serviço `arena-do-brasil-3d` → Environment.
+3. Adicione `TIKTOOL_API_KEY` com a chave privada. Nunca coloque a chave no código, no HTML ou em mensagens públicas.
+4. Mantenha `TIKTOK_USERNAME=nandobr_ofc` (sem @) ou envie o usuário atual pelo painel.
+5. A aplicação solicita um JWT curto no servidor e abre `wss://api.tik.tools/?uniqueId=...&jwtKey=...`. O token de acesso não é enviado ao frontend.
+
+### EulerStream (alternativa)
+Configure `EULERSTREAM_API_KEY` no Render. A disponibilidade do provedor e a detecção de LIVE dependem do plano e das condições do serviço.
+
+## Desenvolvimento
 Requer Node.js 20+.
 ```sh
 npm install
 npm run dev
 ```
-Em outra janela: `npm run server`. Gateway: `http://localhost:3001/health`, WebSocket: `ws://localhost:3001/events`.
+Em outra janela: `npm run server`.
 
-## Testes e build
+## Build e testes
 ```sh
 npm test
 npm run build
 ```
 
 ## Render
-`render.yaml` descreve o gateway. Conecte este repositório ao Render para publicar. Ainda não há deploy confirmado.
+O blueprint `render.yaml` usa `npm install --no-audit --no-fund && npm run build && npm test` e inicia com `npm run server`. A chave do provedor deve ser inserida como variável privada no Render; ela não é incluída no Git.
 
-## TikTok LIVE
-A integração está **adiada para a última etapa do projeto**. O jogo deve ser desenvolvido e testado primeiro em modo de simulação. O status técnico do servidor está disponível em `/api/tiktok/status` e `/health`.
-
-- Comentários `!verde`, `!azul`, `!ataque` e `!defesa` controlam a arena; outros comentários aparecem no feed.
-- Presentes reais são convertidos em efeitos visuais/combate conforme o valor em diamantes: até 1 = confete; 2–9 = escudo; 10+ = especial.
-- Curtidas, novos seguidores e compartilhamentos são encaminhados para a interface.
-- Se a live estiver offline ou a conexão falhar, o servidor tenta reconectar após 30 segundos. O simulador continua disponível.
-
-**Limitação importante:** não é uma API oficial do TikTok. O protocolo pode mudar, o acesso depende de a live estar ativa e o conector funcionar no ambiente. Nunca envie cookies ou tokens pessoais ao projeto.
-
-Os nomes dos lutadores são personagens fictícios. Mantenha a sátira claramente identificada e não apresente falas inventadas como declarações reais.
+## Limitação
+A conexão é feita por provedores de terceiros, não pela API oficial pública do TikTok. A conexão pode falhar se a chave expirar, o plano/cota não permitir acesso, o nome estiver incorreto ou o provedor não detectar a transmissão como ativa.
