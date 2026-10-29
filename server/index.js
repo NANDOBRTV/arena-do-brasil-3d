@@ -51,13 +51,15 @@ const clients = new Set();
 const recentIds = new Map();
 let tiktokUsername = String(process.env.TIKTOK_USERNAME || "nandobr_ofc").trim().replace(/^@/, "");
 const eulerApiKey = String(process.env.EULERSTREAM_API_KEY || "").trim();
+const tiktoolApiKey = String(process.env.TIKTOOL_API_KEY || "").trim();
+const activeProvider = tiktoolApiKey ? "tiktool" : eulerApiKey ? "eulerstream-websocket" : "none";
 const tiktokStatus = {
-  configured: Boolean(tiktokUsername),
-  provider: "eulerstream-websocket",
+  configured: Boolean(tiktokUsername && activeProvider !== "none"),
+  provider: activeProvider,
   username: tiktokUsername || null,
   connected: false,
-  state: "connecting",
-  message: eulerApiKey ? "Preparando conexão EulerStream…" : "Falta configurar EULERSTREAM_API_KEY no Render."
+  state: activeProvider === "none" ? "needs-api-key" : "connecting",
+  message: activeProvider === "tiktool" ? "Preparando conexão segura com Tik.Tools…" : activeProvider === "eulerstream-websocket" ? "Preparando conexão EulerStream…" : "Configure TIKTOOL_API_KEY (Tik.Tools) ou EULERSTREAM_API_KEY no Render."
 };
 let tiktokSocket = null;
 let connectionGeneration = 0;
@@ -138,7 +140,89 @@ function handleEulerFrame(frame) {
     }
   }
 }
+async function connectTikTool() {
+  if (!tiktokUsername || !tiktoolApiKey) return;
+  if (tiktokSocket && [WebSocket.CONNECTING, WebSocket.OPEN].includes(tiktokSocket.readyState)) return;
+  updateTikTokStatus("connecting", "Solicitando token seguro ao Tik.Tools para @" + tiktokUsername + "…");
+  try {
+    const auth = await fetch("https://api.tik.tools/authentication/jwt?apiKey=" + encodeURIComponent(tiktoolApiKey), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowed_creators: [tiktokUsername], expire_after: 600, max_websockets: 1 })
+    });
+    let body = {};
+    try { body = await auth.json(); } catch {}
+    const token = body?.data?.token;
+    if (!auth.ok || !token) {
+      const reason = String(body?.message || body?.error || body?.detail || ("HTTP " + auth.status));
+      updateTikTokStatus("auth-error", "Tik.Tools recusou a chave/token (" + reason.slice(0, 120) + "). Confira a chave Sandbox no painel.");
+      scheduleTikTokReconnect();
+      return;
+    }
+    const url = "wss://api.tik.tools/?uniqueId=" + encodeURIComponent(tiktokUsername) + "&jwtKey=" + encodeURIComponent(token);
+    const socket = new WebSocket(url, { handshakeTimeout: 15000 });
+    tiktokSocket = socket;
+    socket.on("open", () => updateTikTokStatus("connected", "WebSocket Tik.Tools conectado à LIVE de @" + tiktokUsername + "; aguardando eventos reais.", true));
+    socket.on("message", frame => {
+      let parsed;
+      try { parsed = JSON.parse(Buffer.isBuffer(frame) ? frame.toString("utf8") : String(frame)); } catch { return; }
+      const event = String(parsed?.event || "").toLowerCase();
+      const data = parsed?.data || {};
+      if (event === "roominfo") {
+        updateTikTokStatus("connected", "Tik.Tools confirmou a sala de @" + tiktokUsername + ".", true);
+        return;
+      }
+      const user = data?.user || {};
+      const viewer = String(user.uniqueId || user.unique_id || user.nickname || data.user_unique_id || "Espectador").slice(0, 24);
+      const id = String(data.msgId || data.messageId || data.transactionId || data.eventId || "");
+      if (id && recentIds.has("tik:" + id)) return;
+      if (id) {
+        recentIds.set("tik:" + id, Date.now());
+        if (recentIds.size > 3000) recentIds.delete(recentIds.keys().next().value);
+      }
+      if (event === "chat") {
+        const comment = String(data.comment || data.text || "").slice(0, 500);
+        const command = comment.trim().toLowerCase().split(/\\s+/)[0];
+        broadcast({ type: "chat", viewer, comment, command: ["!verde", "!azul", "!ataque", "!defesa"].includes(command) ? command : null, eventId: id });
+      } else if (event === "gift") {
+        if (data.repeatEnd === false || data.isStreakOver === false) return;
+        const giftName = String(data.giftName || data.gift?.name || "Presente").slice(0, 80);
+        const diamonds = Math.max(0, Number(data.diamondCount ?? data.gift?.diamondCount ?? 0) || 0);
+        const gift = diamonds >= 10 ? "special" : diamonds >= 2 ? "shield" : "confetti";
+        broadcast({ type: "gift", gift, viewer, giftName, diamonds, eventId: id || giftName + ":" + String(data.repeatCount || 1) });
+      } else if (event === "like" || event === "likes") {
+        const count = Math.max(1, Math.min(1000000, Math.floor(Number(data.likeCount ?? data.count ?? 1) || 1)));
+        broadcast({ type: "likes", count, viewer });
+      } else if (event === "follow" || event === "share" || event === "member" || event === "social") {
+        const action = String(data.event || data.action || event).toLowerCase();
+        if (action.includes("follow")) broadcast({ type: "social", event: "follow", viewer });
+        else if (action.includes("share")) broadcast({ type: "social", event: "share", viewer });
+        else if (event === "member" || action.includes("member") || action.includes("join")) broadcast({ type: "social", event: "member", viewer });
+      }
+    });
+    socket.on("error", err => {
+      updateTikTokStatus("connection-error", "Tik.Tools WebSocket: " + String(err?.message || err || "erro de conexão").slice(0, 140), false);
+    });
+    socket.on("close", (code, reason) => {
+      if (tiktokSocket === socket) tiktokSocket = null;
+      const info = ({ 4401: "chave/token inválido", 4403: "token sem permissão para este usuário", 4404: "Tik.Tools não encontrou a LIVE ativa", 4005: "a transmissão terminou", 4006: "sem eventos por tempo prolongado" })[code];
+      updateTikTokStatus(code === 4404 ? "waiting-for-live" : "disconnected",
+        "Tik.Tools encerrou a conexão (" + code + ")" + (info ? ": " + info : "") + (reason?.length ? " — " + reason.toString().slice(0, 80) : "") + ". Tentando novamente em 30 segundos.", false);
+      scheduleTikTokReconnect();
+    });
+  } catch (err) {
+    if (tiktokSocket && tiktokSocket.readyState !== WebSocket.OPEN) tiktokSocket = null;
+    updateTikTokStatus("connection-error", "Falha ao solicitar token/conectar no Tik.Tools: " + String(err?.message || err || "erro inesperado").slice(0, 140), false);
+    scheduleTikTokReconnect();
+  }
+}
 function connectTikTok() {
+  tiktokStatus.provider = tiktoolApiKey ? "tiktool" : eulerApiKey ? "eulerstream-websocket" : "none";
+  if (tiktoolApiKey) return connectTikTool();
+  if (eulerApiKey) return connectEulerStream();
+  updateTikTokStatus("needs-api-key", "Configure TIKTOOL_API_KEY no Render para usar Tik.Tools, ou EULERSTREAM_API_KEY para EulerStream.");
+}
+function connectEulerStream() {
   if (!tiktokUsername) {
     updateTikTokStatus("needs-username", "Informe o usuário da LIVE para conectar.");
     return;
